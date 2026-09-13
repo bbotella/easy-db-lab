@@ -614,7 +614,12 @@ kover {
 // Jib container image configuration
 jib {
     from {
-        image = "eclipse-temurin:21-jre"
+        // Pull the base image from the AWS ECR Public mirror, not Docker Hub.
+        // Docker Hub 401s anonymous manifest requests from shared CI runners.
+        // jib then retries with whatever is in ~/.docker/config.json, which on
+        // the publish workflow is the ghcr.io credential, and Docker Hub
+        // rejects that too. The mirror allows anonymous pulls.
+        image = "public.ecr.aws/docker/library/eclipse-temurin:21-jre"
     }
     to {
         val imageTag = System.getProperty("jib.to.image.tag") ?: "latest"
