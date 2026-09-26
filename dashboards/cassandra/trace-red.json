@@ -58,7 +58,7 @@
       "description": "Spans per second across every span name. Source: collector traces_spanmetrics_duration_milliseconds_count.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -99,7 +99,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum(rate(traces_spanmetrics_duration_milliseconds_count{host_name=~\"$host\"}[$__rate_interval]))",
@@ -123,7 +123,7 @@
       "description": "Share of spans with status_code=STATUS_CODE_ERROR. The numerator falls back to zero when no error series exists, so a clean run reads 0 rather than No data. The panel is still empty when no spans are flowing at all, because the denominator is then zero.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -172,7 +172,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "100 * (sum(rate(traces_spanmetrics_calls_total{source=\"\", host_name=~\"$host\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) or vector(0)) / sum(rate(traces_spanmetrics_calls_total{source=\"\", host_name=~\"$host\"}[$__rate_interval]))",
@@ -196,7 +196,7 @@
       "description": "99th percentile across all span names. Unit: MILLISECONDS.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -237,7 +237,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (le) (rate(traces_spanmetrics_duration_milliseconds_bucket{host_name=~\"$host\"}[$__rate_interval])))",
@@ -261,7 +261,7 @@
       "description": "How many span names the pipeline is currently reporting. A drop to zero means trace ingest has stopped, not that the database got quiet.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -305,7 +305,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "count(count by (span_name) (traces_spanmetrics_duration_milliseconds_count{host_name=~\"$host\"}))",
@@ -329,7 +329,7 @@
       "description": "The R in RED. Grouped by the $groupby variable. Honoured dimensions on this family: span_name, span_kind, status_code, service_name, host_name.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -403,7 +403,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by ($groupby) (rate(traces_spanmetrics_duration_milliseconds_count{host_name=~\"$host\"}[$__rate_interval]))",
@@ -427,7 +427,7 @@
       "description": "The E in RED, split by span status. STATUS_CODE_UNSET is the normal case; STATUS_CODE_ERROR is a failure the caller saw.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -501,7 +501,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (status_code) (rate(traces_spanmetrics_calls_total{source=\"\", host_name=~\"$host\"}[$__rate_interval]))",
@@ -525,7 +525,7 @@
       "description": "The D in RED. p50, p90 and p99 together so the shape of the distribution stays visible. Unit: MILLISECONDS. Real histogram, so histogram_quantile is valid.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -599,7 +599,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.50, sum by (span_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{host_name=~\"$host\"}[$__rate_interval])))",
@@ -611,7 +611,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.90, sum by (span_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{host_name=~\"$host\"}[$__rate_interval])))",
@@ -623,7 +623,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (span_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{host_name=~\"$host\"}[$__rate_interval])))",
@@ -647,7 +647,7 @@
       "description": "Same p99, grouped by the $groupby variable. Set $groupby to host_name to see whether one node is slower from the caller's point of view. Unit: MILLISECONDS.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -721,7 +721,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by ($groupby, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{host_name=~\"$host\"}[$__rate_interval])))",
@@ -745,7 +745,7 @@
       "description": "sum/count, not a quantile. The mean moves when the bulk of the work changes; p99 moves when the tail changes. Unit: MILLISECONDS.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -819,7 +819,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by ($groupby) (rate(traces_spanmetrics_duration_milliseconds_sum{host_name=~\"$host\"}[$__rate_interval])) / sum by ($groupby) (rate(traces_spanmetrics_duration_milliseconds_count{host_name=~\"$host\"}[$__rate_interval]))",
@@ -843,7 +843,7 @@
       "description": "One row per span name, sortable. Rate is spans/s, p99 and mean are in MILLISECONDS. Use it to find which statement dominates and which one is slow.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -935,7 +935,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (span_name) (rate(traces_spanmetrics_duration_milliseconds_count{host_name=~\"$host\"}[$__rate_interval]))",
@@ -948,7 +948,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (span_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{host_name=~\"$host\"}[$__rate_interval])))",
@@ -961,7 +961,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (span_name) (rate(traces_spanmetrics_duration_milliseconds_sum{host_name=~\"$host\"}[$__rate_interval])) / sum by (span_name) (rate(traces_spanmetrics_duration_milliseconds_count{host_name=~\"$host\"}[$__rate_interval]))",
@@ -1025,7 +1025,7 @@
       "description": "Collector service graph (source=\"\"). One series per client to server edge. connection_type=database means the server side is a datastore, not another instrumented service.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1099,7 +1099,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (client, server, connection_type) (rate(traces_service_graph_request_total{source=\"\"}[$__rate_interval]))",
@@ -1123,7 +1123,7 @@
       "description": "The failed label exists only on the collector service graph (source=\"\"); Tempo's generator does not emit it in this build.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1197,7 +1197,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (client, server) (rate(traces_service_graph_request_total{source=\"\", failed=\"true\"}[$__rate_interval]))",
@@ -1221,7 +1221,7 @@
       "description": "Two histograms for the same edge. The client histogram is measured at the caller; the server histogram is measured at the callee. Unit: SECONDS.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1295,7 +1295,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (client, server, le) (rate(traces_service_graph_request_client_seconds_bucket{source=\"\"}[$__rate_interval])))",
@@ -1307,7 +1307,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (client, server, le) (rate(traces_service_graph_request_server_seconds_bucket{source=\"\"}[$__rate_interval])))",
@@ -1331,7 +1331,7 @@
       "description": "The gap between what the caller timed and what the callee timed. That gap is network plus queueing, measured from the trace side. It is a different answer to the coordinator-versus-replica question than the MBeans give. Unit: SECONDS. CAVEAT: for connection_type=database edges the collector synthesises the server side from the same client span, so the delta is structurally zero until a genuine server span exists for the edge.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1404,7 +1404,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (client, server, le) (rate(traces_service_graph_request_client_seconds_bucket{source=\"\"}[$__rate_interval]))) - histogram_quantile(0.99, sum by (client, server, le) (rate(traces_service_graph_request_server_seconds_bucket{source=\"\"}[$__rate_interval])))",
@@ -1428,7 +1428,7 @@
       "description": "sum/count for the same two histograms. The mean gap and the p99 gap answer different questions: a mean gap is steady overhead, a p99 gap is intermittent queueing. Unit: SECONDS.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1502,7 +1502,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (client, server) (rate(traces_service_graph_request_client_seconds_sum{source=\"\"}[$__rate_interval])) / sum by (client, server) (rate(traces_service_graph_request_client_seconds_count{source=\"\"}[$__rate_interval]))",
@@ -1514,7 +1514,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum by (client, server) (rate(traces_service_graph_request_server_seconds_sum{source=\"\"}[$__rate_interval])) / sum by (client, server) (rate(traces_service_graph_request_server_seconds_count{source=\"\"}[$__rate_interval]))",
@@ -1538,7 +1538,7 @@
       "description": "Mean version of the delta panel. Unit: SECONDS. Same caveat about synthesised server spans on database edges.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1611,7 +1611,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "(sum by (client, server) (rate(traces_service_graph_request_client_seconds_sum{source=\"\"}[$__rate_interval])) / sum by (client, server) (rate(traces_service_graph_request_client_seconds_count{source=\"\"}[$__rate_interval]))) - (sum by (client, server) (rate(traces_service_graph_request_server_seconds_sum{source=\"\"}[$__rate_interval])) / sum by (client, server) (rate(traces_service_graph_request_server_seconds_count{source=\"\"}[$__rate_interval])))",
@@ -1631,11 +1631,11 @@
     {
       "type": "timeseries",
       "id": 21,
-      "title": "Service Graph Health \u2014 edges tracked, expired edges, dropped spans",
-      "description": "Expired edges and dropped spans mean the graph is incomplete: a client span arrived with no matching server span inside the generator's wait window. Read the delta panels above with suspicion whenever these are non-zero.",
+      "title": "Service Graph Health (collector service_graph connector) \u2014 edges built, expired edges, dropped spans",
+      "description": "The OTel collector's service_graph connector on each node, per collector. Edges built is edges the connector completed and turned into service-graph metrics. Expired edges waited longer than the store's TTL for their matching span; dropped spans could not be added because the edge store was full (max_items). The collector exports the dropped-spans counter only after its first drop, so until then the query falls back to 0 for every host that builds edges. Either one non-zero means the graph is incomplete: read the delta panels above with suspicion. Tempo's metrics generator is off (processors: [] in tempo.yaml), so none of this comes from Tempo.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1709,11 +1709,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(tempo_metrics_generator_processor_service_graphs_edges)",
-          "legendFormat": "edges tracked",
+          "expr": "sum by (host_name) (rate(otelcol_connector_servicegraph_edges_total[$__rate_interval]))",
+          "legendFormat": "{{host_name}} edges built/s",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1721,11 +1721,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(rate(tempo_metrics_generator_processor_service_graphs_expired_edges[$__rate_interval]))",
-          "legendFormat": "expired edges/s",
+          "expr": "sum by (host_name) (rate(otelcol_connector_servicegraph_expired_edges_total[$__rate_interval]))",
+          "legendFormat": "{{host_name}} expired edges/s",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -1733,11 +1733,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(rate(tempo_metrics_generator_processor_service_graphs_dropped_spans[$__rate_interval]))",
-          "legendFormat": "dropped spans/s",
+          "expr": "sum by (host_name) (rate(otelcol_connector_servicegraph_dropped_spans_total[$__rate_interval])) or 0 * sum by (host_name) (rate(otelcol_connector_servicegraph_edges_total[$__rate_interval]))",
+          "legendFormat": "{{host_name}} dropped spans/s",
           "range": true,
           "instant": false,
           "refId": "C"
@@ -1770,7 +1770,7 @@
       "description": "Check this first. If it is zero, every panel above is stale by design and the problem is the sender, not the database.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1844,7 +1844,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum(rate(tempo_distributor_spans_received_total[$__rate_interval]))",
@@ -1856,11 +1856,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(rate(tempo_metrics_generator_spans_received_total[$__rate_interval]))",
-          "legendFormat": "generator received",
+          "expr": "sum by (host_name) (rate(otelcol_receiver_accepted_spans_total[$__rate_interval]))",
+          "legendFormat": "{{host_name}} collector accepted (fed to connectors)",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -1868,10 +1868,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(rate(tempo_ingester_traces_created_total[$__rate_interval]))",
+          "expr": "sum(rate(tempo_live_store_traces_created_total[$__rate_interval]))",
           "legendFormat": "traces created",
           "range": true,
           "instant": false,
@@ -1889,10 +1889,10 @@
       "type": "timeseries",
       "id": 24,
       "title": "Spans Discarded, Refused and Truncated (per second)",
-      "description": "Loss inside Tempo. Anything non-zero here means the RED numbers above are computed from a sample, not from every request.",
+      "description": "Loss inside Tempo, plus spans each node's OTel collector refused or failed before its span_metrics and service_graph connectors saw them. Anything non-zero here means the RED numbers above are computed from a sample, not from every request.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -1966,7 +1966,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum(rate(tempo_discarded_spans_total[$__rate_interval]))",
@@ -1978,7 +1978,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum(rate(tempo_receiver_refused_spans[$__rate_interval]))",
@@ -1990,11 +1990,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(rate(tempo_metrics_generator_spans_discarded_total[$__rate_interval]))",
-          "legendFormat": "generator discarded",
+          "expr": "sum by (host_name) (rate(otelcol_receiver_refused_spans_total[$__rate_interval])) + sum by (host_name) (rate(otelcol_receiver_failed_spans_total[$__rate_interval]))",
+          "legendFormat": "{{host_name}} collector refused/failed",
           "range": true,
           "instant": false,
           "refId": "C"
@@ -2002,7 +2002,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
           "expr": "sum(rate(tempo_distributor_attributes_truncated_total[$__rate_interval]))",
@@ -2022,11 +2022,11 @@
     {
       "type": "timeseries",
       "id": 25,
-      "title": "Metrics Generator Active Series",
-      "description": "The generator holds one series per span name and edge. If active series hits the limit, new span names stop appearing on this dashboard entirely.",
+      "title": "Connector Series (collector span_metrics and service_graph)",
+      "description": "Series the OTel collector's span_metrics and service_graph connectors produce, counted in Mimir per host. Each span name, status and dimension combination is a series, and each service-graph edge is a set of series. A count that keeps climbing means a label value is multiplying series. Tempo's metrics generator is off (processors: [] in tempo.yaml); these connectors are the only producer.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -2100,11 +2100,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(tempo_metrics_generator_registry_active_series)",
-          "legendFormat": "active series",
+          "expr": "count by (host_name) ({__name__=~\"traces_spanmetrics_.+\"})",
+          "legendFormat": "{{host_name}} span_metrics",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -2112,26 +2112,14 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "max(tempo_metrics_generator_registry_max_active_series)",
-          "legendFormat": "limit",
+          "expr": "count by (host_name) ({__name__=~\"traces_service_graph_.+\"})",
+          "legendFormat": "{{host_name}} service_graph",
           "range": true,
           "instant": false,
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "VictoriaMetrics"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(tempo_metrics_generator_registry_series_limited_total[$__rate_interval]))",
-          "legendFormat": "series limited/s",
-          "range": true,
-          "instant": false,
-          "refId": "C"
         }
       ],
       "gridPos": {
@@ -2144,11 +2132,11 @@
     {
       "type": "timeseries",
       "id": 26,
-      "title": "Live Traces and Ingester Queue",
-      "description": "Backlog on the storage side. A growing flush queue with a flat live-trace count means Tempo is accepting faster than it can write.",
+      "title": "Live Traces and Live-Store Queue",
+      "description": "Backlog on the storage side. Live traces are held in memory by Tempo's live store until they are cut into the WAL; the queue is WAL blocks waiting to be completed and flushed to the backend. A growing queue with a flat live-trace count means Tempo is accepting faster than it can write. Tempo 3 has no distributor queue (the distributor hands spans straight to the live store), so that series is gone.",
       "datasource": {
         "type": "prometheus",
-        "uid": "VictoriaMetrics"
+        "uid": "mimir"
       },
       "fieldConfig": {
         "defaults": {
@@ -2222,10 +2210,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(tempo_ingester_live_traces)",
+          "expr": "sum(tempo_live_store_live_traces)",
           "legendFormat": "live traces",
           "range": true,
           "instant": false,
@@ -2234,26 +2222,14 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "VictoriaMetrics"
+            "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(tempo_ingester_flush_queue_length)",
-          "legendFormat": "flush queue length",
+          "expr": "sum(tempo_live_store_complete_queue_length)",
+          "legendFormat": "WAL blocks awaiting completion",
           "range": true,
           "instant": false,
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "VictoriaMetrics"
-          },
-          "editorMode": "code",
-          "expr": "sum(tempo_distributor_queue_length)",
-          "legendFormat": "distributor queue length",
-          "range": true,
-          "instant": false,
-          "refId": "C"
         }
       ],
       "gridPos": {
@@ -2287,7 +2263,7 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "VictoriaMetrics"
+          "uid": "mimir"
         },
         "definition": "label_values(traces_spanmetrics_calls_total, host_name)",
         "description": "Derived from the collector spanmetrics family, so only nodes that emit spans appear. All expands to the explicit list; allValue is deliberately unset. Tempo-generator panels ignore this variable because that family has no host_name.",
@@ -2355,7 +2331,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "VictoriaMetrics"
+          "uid": "mimir"
         },
         "filters": [],
         "hide": 0,
