@@ -57,7 +57,7 @@ class ConfigHashRolloutIntegrationTest {
             "control_node_ip" to "10.0.0.1",
             "aws_region" to "us-west-2",
             "s3_bucket" to "acct-bucket",
-            "traces_s3_prefix" to "observability/traces",
+            "traces_s3_prefix" to "tempo",
             "cluster_name" to "test",
         )
 
@@ -189,7 +189,12 @@ class ConfigHashRolloutIntegrationTest {
         assertThat(replicaSets("pyroscope")).isEqualTo(pyroscopeSets)
 
         // Tempo's configuration changes.
-        deploy(stack { it.replace("max_block_duration: 5m", "max_block_duration: 6m") })
+        deploy(
+            stack {
+                check(it.contains("max_block_duration: 1m")) { "rendered tempo.yaml no longer cuts at 1m" }
+                it.replace("max_block_duration: 1m", "max_block_duration: 2m")
+            },
+        )
 
         assertThat(generation("tempo")).isGreaterThan(tempoGeneration)
         assertThat(awaitReplicaSets("tempo", tempoSets.size + 1)).hasSize(tempoSets.size + 1)

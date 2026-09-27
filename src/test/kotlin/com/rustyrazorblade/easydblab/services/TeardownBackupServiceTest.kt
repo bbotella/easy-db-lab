@@ -3,94 +3,187 @@ package com.rustyrazorblade.easydblab.services
 import com.rustyrazorblade.easydblab.configuration.ClusterHost
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.ClusterStateManager
+import com.rustyrazorblade.easydblab.configuration.SavedSignal
 import com.rustyrazorblade.easydblab.configuration.TailFlushRecord
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.entry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
- * `down` saves the tail with one flush attempt and never retries it: a retry would POST to an
- * ingester the failed attempt already stopped. A flush that succeeds is recorded in the cluster
- * state, so a `down` re-run after a failed teardown skips it.
+ * What `down` records of a save, and when. Logs and metrics are recorded the moment each flush
+ * succeeds, through one writer, so an interrupted `down` keeps them; a re-run skips them and saves
+ * the rest again. The save itself is a hand-written fake; the state file is real.
  */
 class TeardownBackupServiceTest {
     @TempDir
     lateinit var dir: File
 
     private val control = ClusterHost("54.0.0.1", "10.0.1.5", "control0", "us-west-2a")
-    private val state = ClusterState(name = "lab", versions = mutableMapOf())
     private val now = Instant.parse("2026-09-26T12:00:00Z")
     private val clock = Clock.fixed(now, ZoneOffset.UTC)
+    private val state = ClusterState(name = "lab", versions = mutableMapOf())
 
-    /** Answers each attempt from [outcomes] in turn, and counts the attempts. */
-    private class ScriptedFlush(
-        outcomes: List<Result<FlushReport>>,
+    private fun manager() = ClusterStateManager(File(dir, "state.json"))
+
+    /** Saves the pending signals it is given, calling back for each in [saves] order. */
+    private open inner class FakeSave(
+        private val failing: Set<TailSignal> = emptySet(),
     ) : TeardownFlushService {
-        private val pending = ArrayDeque(outcomes)
-        var attempts = 0
+        var pending: Set<TailSignal> = emptySet()
+
+        open fun beforeReport(
+            signal: TailSignal,
+            onSaved: (TailSignal, SignalReport) -> Unit,
+        ) = Unit
 
         override fun saveTail(
             controlHost: ClusterHost,
             clusterState: ClusterState,
-        ): Result<FlushReport> {
-            attempts++
-            return pending.removeFirst()
+            pending: Set<TailSignal>,
+            onSaved: (TailSignal, SignalReport) -> Unit,
+        ): FlushOutcome {
+            this.pending = pending
+            val saved = pending - failing
+            saved.filter { it in TailSignal.RECORDED }.forEach { signal ->
+                beforeReport(signal, onSaved)
+                onSaved(signal, if (signal == TailSignal.LOGS) SignalReport.Logs(2, 9) else SignalReport.Metrics(5))
+            }
+            return FlushOutcome(
+                saved = saved.associateWith { SignalReport.Profiles },
+                failed =
+                    failing.associateWith {
+                        FlushStepFailed(
+                            FlushStep.TEMPO_LIVE_TRACES,
+                            mapOf("tempo" to BackendState.RUNNING),
+                            IllegalStateException("timed out"),
+                        )
+                    },
+                backends = mapOf("loki" to BackendState.SCALED_TO_ZERO),
+            )
         }
     }
 
-    private val report = FlushReport(lokiIndexFiles = 1, lokiChunksFlushed = 3, mimirBlocks = 2)
+    @Test
+    fun `logs and metrics are recorded with what they verified, and nothing else is`() {
+        val manager = manager()
 
-    private val failed =
-        Result.failure<FlushReport>(
-            FlushStepFailed(FlushStep.LOKI_SHUTDOWN, mapOf("loki" to BackendState.INGESTER_STOPPED), IllegalStateException("timed out")),
+        DefaultTeardownBackupService(FakeSave(), manager, clock).backupBeforeTeardown(control, state).getOrThrow()
+
+        val expected =
+            mapOf(
+                TailSignal.LOGS to SavedSignal(now, verifiedObjects = 2),
+                TailSignal.METRICS to SavedSignal(now, verifiedObjects = 5),
+            )
+        assertThat(state.tailFlush?.signals).isEqualTo(expected)
+        assertThat(manager.load().tailFlush?.signals).isEqualTo(expected)
+    }
+
+    /** The logs record must be on disk while the Mimir flush still runs, so an interrupt keeps it. */
+    @Test
+    fun `logs are on disk while the metrics flush is still running`() {
+        val manager = manager()
+        val logsOnDisk = CountDownLatch(1)
+        val save =
+            object : FakeSave() {
+                override fun beforeReport(
+                    signal: TailSignal,
+                    onSaved: (TailSignal, SignalReport) -> Unit,
+                ) {
+                    if (signal == TailSignal.METRICS) {
+                        // The metrics flush is still running here; the logs record must already be written.
+                        assertThat(manager.load().tailFlush?.signals).containsOnlyKeys(TailSignal.LOGS)
+                        logsOnDisk.countDown()
+                    }
+                }
+            }
+
+        DefaultTeardownBackupService(save, manager, clock).backupBeforeTeardown(control, state).getOrThrow()
+
+        assertThat(logsOnDisk.await(0, TimeUnit.SECONDS)).isTrue()
+    }
+
+    @Test
+    fun `a re-run's pending set leaves out the recorded signals`() {
+        state.tailFlush = TailFlushRecord(mapOf(TailSignal.LOGS to SavedSignal(now, 1)))
+        val save = FakeSave()
+
+        DefaultTeardownBackupService(save, manager(), clock).backupBeforeTeardown(control, state).getOrThrow()
+
+        assertThat(save.pending).containsExactlyInAnyOrder(
+            TailSignal.METRICS,
+            TailSignal.TRACES,
+            TailSignal.PROFILES,
+            TailSignal.ANNOTATIONS,
         )
-
-    private fun manager(file: File = File(dir, "state.json")) = ClusterStateManager(file)
-
-    @Test
-    fun `a flush that succeeds is recorded in the cluster state with what it verified`() {
-        val manager = manager()
-        val flush = ScriptedFlush(listOf(Result.success(report)))
-
-        DefaultTeardownBackupService(flush, manager, clock).backupBeforeTeardown(control, state).getOrThrow()
-
-        val expected = TailFlushRecord(completedAt = now, lokiIndexFiles = 1, lokiChunksFlushed = 3, mimirBlocks = 2)
-        assertThat(state.tailFlush).isEqualTo(expected)
-        assertThat(manager.load().tailFlush).isEqualTo(expected)
     }
 
     @Test
-    fun `a failed flush is not retried, is returned as it failed, and records nothing`() {
+    fun `a failed signal fails the save with every failure, and the signals that were saved stay recorded`() {
         val manager = manager()
-        val flush = ScriptedFlush(listOf(failed, Result.success(report)))
 
-        val result = DefaultTeardownBackupService(flush, manager, clock).backupBeforeTeardown(control, state)
-
-        assertThat(flush.attempts).isEqualTo(1)
-        assertThat(result.exceptionOrNull()).isSameAs(failed.exceptionOrNull())
-        assertThat(state.tailFlush).isNull()
-        assertThat(manager.exists()).isFalse()
-    }
-
-    @Test
-    fun `a flush whose record cannot be saved fails at the record step, with both backends at 0`() {
-        // A directory where the state file should be: the save fails.
-        val unwritable = File(dir, "state.json").apply { mkdirs() }
-
-        val result =
-            DefaultTeardownBackupService(ScriptedFlush(listOf(Result.success(report))), manager(unwritable), clock)
+        val failure =
+            DefaultTeardownBackupService(FakeSave(failing = setOf(TailSignal.TRACES)), manager, clock)
                 .backupBeforeTeardown(control, state)
+                .exceptionOrNull() as TailFlushFailed
 
-        val failure = result.exceptionOrNull() as FlushStepFailed
-        assertThat(failure.step).isEqualTo(FlushStep.RECORD)
-        assertThat(failure.backends).containsExactly(
-            entry("loki", BackendState.SCALED_TO_ZERO),
-            entry("mimir", BackendState.SCALED_TO_ZERO),
-        )
+        assertThat(failure.failures.keys).containsExactly(TailSignal.TRACES)
+        assertThat(failure).hasMessageContaining("traces (Tempo)").hasMessageContaining("timed out")
+        assertThat(failure.backends).containsEntry("loki", BackendState.SCALED_TO_ZERO)
+        assertThat(manager.load().tailFlush?.signals).containsOnlyKeys(TailSignal.LOGS, TailSignal.METRICS)
+    }
+
+    @Test
+    fun `a save of every signal is recorded as complete on disk before it returns`() {
+        val manager = manager()
+
+        DefaultTeardownBackupService(FakeSave(), manager, clock).backupBeforeTeardown(control, state).getOrThrow()
+
+        assertThat(manager.load().tailFlush?.saveCompletedAt).isEqualTo(now)
+    }
+
+    @Test
+    fun `a save with a failed signal is never recorded as complete`() {
+        val manager = manager()
+
+        DefaultTeardownBackupService(FakeSave(failing = setOf(TailSignal.TRACES)), manager, clock).backupBeforeTeardown(control, state)
+
+        assertThat(manager.load().tailFlush?.saveCompletedAt).isNull()
+    }
+
+    @Test
+    fun `a completed save leaves nothing unsaved`() {
+        state.tailFlush = TailFlushRecord(mapOf(TailSignal.LOGS to SavedSignal(now, 1)), saveCompletedAt = now)
+
+        assertThat(DefaultTeardownBackupService(FakeSave(), manager(), clock).unsavedSignals(state)).isEmpty()
+    }
+
+    @Test
+    fun `nothing recorded leaves logs, metrics, traces and annotations unsaved, never profiles`() {
+        val service = DefaultTeardownBackupService(FakeSave(), manager(), clock)
+
+        assertThat(service.unsavedSignals(state))
+            .containsExactly(TailSignal.LOGS, TailSignal.METRICS, TailSignal.TRACES, TailSignal.ANNOTATIONS)
+    }
+
+    @Test
+    fun `recorded logs leave metrics, traces and annotations unsaved`() {
+        state.tailFlush = TailFlushRecord(mapOf(TailSignal.LOGS to SavedSignal(now, 1)))
+
+        assertThat(DefaultTeardownBackupService(FakeSave(), manager(), clock).unsavedSignals(state))
+            .containsExactly(TailSignal.METRICS, TailSignal.TRACES, TailSignal.ANNOTATIONS)
+    }
+
+    @Test
+    fun `recorded logs and metrics leave traces and annotations unsaved`() {
+        state.tailFlush = TailFlushRecord(mapOf(TailSignal.LOGS to SavedSignal(now, 1), TailSignal.METRICS to SavedSignal(now, 2)))
+
+        assertThat(DefaultTeardownBackupService(FakeSave(), manager(), clock).unsavedSignals(state))
+            .containsExactly(TailSignal.TRACES, TailSignal.ANNOTATIONS)
     }
 }

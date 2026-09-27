@@ -8,7 +8,10 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import com.rustyrazorblade.easydblab.Constants
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Manages persistence of ClusterState to/from disk.
@@ -59,8 +62,26 @@ class ClusterStateManager(
 
     /**
      * Save cluster state to the configured file.
+     *
+     * The state is written to a temp file in the same directory, which is then renamed over the
+     * state file in one atomic step. `down` records a signal while other threads load the state, and
+     * a reader must see the old file or the new one, never a half-written one. The temp file takes
+     * the state file's permissions, or those of any new file when there is none yet, so a save never
+     * changes them.
      */
-    fun save(state: ClusterState) = mapper.writerWithDefaultPrettyPrinter().writeValue(stateFile, state)
+    fun save(state: ClusterState) {
+        val target = stateFile.absoluteFile.toPath()
+        val temp = Files.createFile(target.resolveSibling("${target.fileName}.${UUID.randomUUID()}.tmp"))
+        try {
+            if (Files.exists(target) && "posix" in target.fileSystem.supportedFileAttributeViews()) {
+                Files.setPosixFilePermissions(temp, Files.getPosixFilePermissions(target))
+            }
+            mapper.writerWithDefaultPrettyPrinter().writeValue(temp.toFile(), state)
+            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            Files.deleteIfExists(temp)
+        }
+    }
 
     /**
      * Check if the state file exists.

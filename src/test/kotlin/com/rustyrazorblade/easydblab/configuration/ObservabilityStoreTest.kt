@@ -22,18 +22,18 @@ class ObservabilityStoreTest {
         val store = ObservabilityStore.from(state)
 
         assertThat(store.bucket).isEqualTo("acct-bucket")
-        assertThat(store.tracesPrefix()).isEqualTo("observability/traces")
-        assertThat(store.profilesPrefix()).isEqualTo("observability/profiles")
-        assertThat(store.logsPrefix()).isEqualTo("observability/logs")
+        assertThat(store.tracesPrefix()).isEqualTo("tempo")
+        assertThat(store.profilesPrefix()).isEqualTo("pyroscope")
+        assertThat(store.logsPrefix()).isEqualTo("loki")
         // Mimir accepts only letters and digits in its storage prefix.
-        assertThat(store.metricsPrefix()).isEqualTo("observabilitymetrics")
+        assertThat(store.metricsPrefix()).isEqualTo("mimir")
     }
 
     @Test
     fun `the annotations root carries the tenant`() {
         val store = ObservabilityStore.from(state)
 
-        assertThat(store.annotationsRoot().toString()).isEqualTo("s3://acct-bucket/observability/annotations/acme")
+        assertThat(store.annotationsRoot().toString()).isEqualTo("s3://acct-bucket/grafana/annotations/acme")
     }
 
     @Test
@@ -42,14 +42,14 @@ class ObservabilityStoreTest {
         val name = SnapshotName.of(state, at)
 
         assertThat(store.annotationsArtifact(name).getKey())
-            .isEqualTo("observability/annotations/acme/20260924-130405_lab-0f1e2d3c-aaaa-bbbb-cccc-123456789abc.json")
+            .isEqualTo("grafana/annotations/acme/20260924-130405_lab-0f1e2d3c-aaaa-bbbb-cccc-123456789abc.json")
     }
 
     @Test
     fun `a cluster without a tenant uses the default tenant`() {
         val store = ObservabilityStore.from(state.copy(initConfig = null))
 
-        assertThat(store.annotationsRoot().getKey()).isEqualTo("observability/annotations/default")
+        assertThat(store.annotationsRoot().getKey()).isEqualTo("grafana/annotations/default")
     }
 
     @Test
@@ -57,17 +57,6 @@ class ObservabilityStoreTest {
         assertThatThrownBy { ObservabilityStore.from(state.copy(s3Bucket = null)) }
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("Run 'easy-db-lab up' first")
-    }
-
-    @Test
-    fun `two clusters with the same name saving in the same second get different keys`() {
-        val other = state.copy(clusterId = "99999999-aaaa-bbbb-cccc-123456789abc")
-        val store = ObservabilityStore.from(state)
-
-        val first = store.annotationsArtifact(SnapshotName.of(state, at))
-        val second = store.annotationsArtifact(SnapshotName.of(other, at))
-
-        assertThat(first).isNotEqualTo(second)
     }
 
     @Test

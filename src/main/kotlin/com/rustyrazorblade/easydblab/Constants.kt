@@ -209,31 +209,28 @@ object Constants {
 
     /**
      * The observability store: the tenant every cluster belongs to, and the layout of its data in the
-     * account bucket. Mimir, Loki, Tempo and Pyroscope lay out their own tenant directories under
-     * their prefix; the annotation backups carry the tenant in the path.
+     * account bucket. Each backend's root sits at the top level of the bucket and is named for the
+     * tool whose file format it holds. Mimir, Loki, Tempo and Pyroscope lay out their own tenant
+     * directories under their root; the annotation backups carry the tenant in the path.
      */
     object Observability {
-        /** Top-level prefix for all observability data in the account bucket. */
-        const val PREFIX = "observability"
+        /** Mimir's storage prefix in the account bucket; Mimir makes one directory per tenant under it. */
+        const val METRICS_ROOT = "mimir"
 
-        /** Directory of Tempo's live backend under [PREFIX]. */
-        const val TRACES_DIR = "traces"
+        /** Loki's object prefix; Loki lays out its tenants' chunks and its index tables (`index/`) under it. */
+        const val LOGS_ROOT = "loki"
 
-        /** Directory of Pyroscope's live backend under [PREFIX]. */
-        const val PROFILES_DIR = "profiles"
+        /** Tempo's backend prefix; Tempo makes one directory per tenant under it. */
+        const val TRACES_ROOT = "tempo"
 
-        /** Directory of Loki's backend under [PREFIX]. */
-        const val LOGS_DIR = "logs"
+        /** The Pyroscope server's backend prefix; Pyroscope v2 lays out its own directories under it. */
+        const val PROFILES_ROOT = "pyroscope"
 
-        /** Directory of Grafana annotation backups under [PREFIX]. */
+        /** Root of the Grafana data easy-db-lab saves itself, such as the annotation backups. */
+        const val GRAFANA_ROOT = "grafana"
+
+        /** Directory of the Grafana annotation backups under [GRAFANA_ROOT]; the tenant follows it. */
         const val ANNOTATIONS_DIR = "annotations"
-
-        /**
-         * Mimir's storage prefix in the account bucket; Mimir makes one directory per tenant under
-         * it. It sits beside [PREFIX], not under it: Mimir accepts only letters and digits in the
-         * prefix, so `observability/metrics` is impossible.
-         */
-        const val METRICS_ROOT = "observabilitymetrics"
 
         /** The tenant of a cluster that was initialized without `--tenant`. */
         const val DEFAULT_TENANT = "default"
@@ -293,6 +290,9 @@ object Constants {
 
         /** Tempo's `app.kubernetes.io/name` label; the collector finds the Tempo pod by it. */
         const val TEMPO_APP_LABEL = "tempo"
+
+        /** The OTel collector's DaemonSet name and `app.kubernetes.io/name` label. */
+        const val OTEL_COLLECTOR_APP_LABEL = "otel-collector"
 
         /** The Pyroscope server's `app.kubernetes.io/name` label; the collector finds its pod by it. */
         const val PYROSCOPE_APP_LABEL = "pyroscope"
@@ -683,6 +683,15 @@ object Constants {
 
         /** How often a wait on a backend's pods looks again. */
         const val POLL_INTERVAL_SECONDS = 5L
+
+        /** The OTel collector's pods may take this long to go once its DaemonSet is deleted. */
+        const val SENDERS_STOP_TIMEOUT_SECONDS = 120L
+
+        /** Tempo may take this long to hold no live trace and to upload every local block. */
+        const val TEMPO_DRAIN_TIMEOUT_SECONDS = 300L
+
+        /** The least time between the two readings of Tempo's created-traces counter that must agree. */
+        const val TEMPO_STABLE_READING_GAP_SECONDS = 2L
     }
 
     /** Loki, the logs backend. */
