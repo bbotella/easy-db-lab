@@ -24,8 +24,10 @@ import com.rustyrazorblade.easydblab.services.DefaultObservabilityStackService
 import com.rustyrazorblade.easydblab.services.GrafanaDashboardService
 import com.rustyrazorblade.easydblab.services.K8sClientProvider
 import com.rustyrazorblade.easydblab.services.K8sService
+import com.rustyrazorblade.easydblab.services.ObjectStore
 import com.rustyrazorblade.easydblab.services.ObservabilityStackService
 import com.rustyrazorblade.easydblab.services.TemplateService
+import com.rustyrazorblade.easydblab.services.TenantDirectory
 import io.fabric8.kubernetes.api.model.ConfigMap
 import io.fabric8.kubernetes.api.model.ConfigMapList
 import io.fabric8.kubernetes.api.model.HasMetadata
@@ -71,29 +73,10 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
     override fun additionalTestModules(): List<Module> =
         listOf(
             module {
-                single {
-                    mock<GrafanaDashboardService>().also {
-                        mockDashboardService = it
-                    }
-                }
-
-                single {
-                    mock<ClusterStateManager>().also {
-                        mockClusterStateManager = it
-                    }
-                }
-
-                single {
-                    mock<K8sService>().also {
-                        mockK8sService = it
-                    }
-                }
-
-                single {
-                    mock<K8sClientProvider>().also {
-                        mockK8sClientProvider = it
-                    }
-                }
+                single { mock<GrafanaDashboardService>().also { mockDashboardService = it } }
+                single { mock<ClusterStateManager>().also { mockClusterStateManager = it } }
+                single { mock<K8sService>().also { mockK8sService = it } }
+                single { mock<K8sClientProvider>().also { mockK8sClientProvider = it } }
 
                 // Real TemplateService — never mock configuration classes
                 single { TemplateService(get(), get()) }
@@ -137,6 +120,7 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
                         get(),
                         get(),
                         get(),
+                        TenantDirectory(mock<ObjectStore>()),
                     )
                 }
             },
@@ -196,6 +180,7 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
             ClusterState(
                 name = "test-cluster",
                 versions = mutableMapOf(),
+                s3Bucket = "easy-db-lab-test",
                 hosts =
                     mutableMapOf(
                         ServerType.Control to listOf(testControlHost),
@@ -230,6 +215,7 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
             ClusterState(
                 name = "test-cluster",
                 versions = mutableMapOf(),
+                s3Bucket = "easy-db-lab-test",
                 hosts =
                     mutableMapOf(
                         ServerType.Control to listOf(testControlHost),
@@ -263,6 +249,7 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
             ClusterState(
                 name = "test-cluster",
                 versions = mutableMapOf(),
+                s3Bucket = "easy-db-lab-test",
                 hosts =
                     mutableMapOf(
                         ServerType.Control to listOf(testControlHost),
@@ -286,6 +273,7 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
             ClusterState(
                 name = "test-cluster",
                 versions = mutableMapOf(),
+                s3Bucket = "easy-db-lab-test",
                 hosts =
                     mutableMapOf(
                         ServerType.Control to listOf(testControlHost),
@@ -312,6 +300,7 @@ class GrafanaUpdateConfigTest : BaseKoinTest() {
             ClusterState(
                 name = "test-cluster",
                 versions = mutableMapOf(),
+                s3Bucket = "easy-db-lab-test",
                 hosts =
                     mutableMapOf(
                         ServerType.Control to listOf(testControlHost),

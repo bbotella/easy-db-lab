@@ -8,10 +8,15 @@ import com.rustyrazorblade.easydblab.events.Event
 import com.rustyrazorblade.easydblab.events.EventBus
 import com.rustyrazorblade.easydblab.events.EventEnvelope
 import com.rustyrazorblade.easydblab.events.EventListener
+import com.rustyrazorblade.easydblab.exceptions.RemoteCommandFailedException
+import io.fabric8.kubernetes.client.KubernetesClientException
+import kotlinx.serialization.SerializationException
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.entry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.io.IOException
+import java.io.UncheckedIOException
 import java.time.Duration
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
@@ -63,21 +68,6 @@ class TeardownFlushServiceTest {
         }
     }
 
-    private inner class FakeWorkloads(
-        private val states: Map<String, BackendState> = emptyMap(),
-    ) : BackendWorkloads {
-        override fun scaleDown(
-            controlHost: ClusterHost,
-            workload: String,
-            timeout: Duration,
-        ) = error("the orchestrator never scales a backend itself")
-
-        override fun state(
-            controlHost: ClusterHost,
-            workload: String,
-        ): BackendState = states[workload] ?: BackendState.RUNNING
-    }
-
     private var mirrorFailure: Throwable? = null
     private var sendersFailure: Throwable? = null
 
@@ -112,11 +102,19 @@ class TeardownFlushServiceTest {
         }
 
     private fun service(
-        loki: SignalFlush = FakeFlush("loki", SignalReport.Logs(1, 2), "loki"),
-        mimir: SignalFlush = FakeFlush("mimir", SignalReport.Metrics(3), "mimir"),
-        tempo: SignalFlush = FakeFlush("tempo", SignalReport.Traces(4), "tempo"),
-        workloads: BackendWorkloads = FakeWorkloads(),
-    ) = DefaultTeardownFlushService(loki, mimir, tempo, workloads, senders, mirror, backups, eventBus)
+        loki: SignalFlush = FakeFlush("loki", SignalReport.Logs, "loki"),
+        mimir: SignalFlush = FakeFlush("mimir", SignalReport.Metrics, "mimir"),
+        tempo: SignalFlush = FakeFlush("tempo", SignalReport.Traces, "tempo"),
+    ) = DefaultTeardownFlushService
+        .builder()
+        .lokiFlush(loki)
+        .mimirFlush(mimir)
+        .tempoDrain(tempo)
+        .telemetrySenders(senders)
+        .annotationMirror(mirror)
+        .annotationBackupService(backups)
+        .eventBus(eventBus)
+        .build()
 
     private fun failing(
         name: String,
@@ -124,15 +122,22 @@ class TeardownFlushServiceTest {
         message: String,
     ) = FakeFlush(name, SignalReport.Profiles, workload) { error(message) }
 
+    /** A flush of [report] from [name] that throws [exception]. */
+    private fun throwing(
+        name: String,
+        report: SignalReport,
+        exception: Exception,
+    ) = FakeFlush(name, report, name) { throw exception }
+
     @Test
     fun `every signal is saved, and each backend is left as its step left it`() {
         val outcome = service().saveTail(control, state, all)
 
         assertThat(outcome.failed).isEmpty()
         assertThat(outcome.saved).containsOnly(
-            entry(TailSignal.LOGS, SignalReport.Logs(1, 2)),
-            entry(TailSignal.METRICS, SignalReport.Metrics(3)),
-            entry(TailSignal.TRACES, SignalReport.Traces(4)),
+            entry(TailSignal.LOGS, SignalReport.Logs),
+            entry(TailSignal.METRICS, SignalReport.Metrics),
+            entry(TailSignal.TRACES, SignalReport.Traces),
             entry(TailSignal.PROFILES, SignalReport.Profiles),
             entry(TailSignal.ANNOTATIONS, SignalReport.Annotations("grafana/annotations/x.json")),
         )
@@ -140,9 +145,13 @@ class TeardownFlushServiceTest {
             .containsEntry("loki", BackendState.SCALED_TO_ZERO)
             .containsEntry("mimir", BackendState.SCALED_TO_ZERO)
             .containsEntry("otel-collector", BackendState.DELETED)
-        assertThat(
-            events,
-        ).contains(Event.Teardown.TelemetrySendersStopped, Event.Teardown.ProfilesNeedNoFlush, Event.Teardown.TempoFlushed(4))
+        assertThat(events).contains(
+            Event.Teardown.TelemetrySendersStopped,
+            Event.Teardown.LokiFlushed,
+            Event.Teardown.MimirFlushed,
+            Event.Teardown.TempoFlushed,
+            Event.Teardown.ProfilesNeedNoFlush,
+        )
     }
 
     @Test
@@ -160,12 +169,12 @@ class TeardownFlushServiceTest {
         val lokiStarted = CountDownLatch(1)
         val mimirStarted = CountDownLatch(1)
         val loki =
-            FakeFlush("loki", SignalReport.Logs(1, 2), "loki") {
+            FakeFlush("loki", SignalReport.Logs, "loki") {
                 lokiStarted.countDown()
                 check(mimirStarted.await(5, TimeUnit.SECONDS)) { "Mimir's flush never started while Loki's ran" }
             }
         val mimir =
-            FakeFlush("mimir", SignalReport.Metrics(3), "mimir") {
+            FakeFlush("mimir", SignalReport.Metrics, "mimir") {
                 mimirStarted.countDown()
                 check(lokiStarted.await(5, TimeUnit.SECONDS)) { "Loki's flush never started while Mimir's ran" }
             }
@@ -179,15 +188,102 @@ class TeardownFlushServiceTest {
     fun `one failing signal leaves every other signal saved, and every failure is reported`() {
         val outcome =
             service(
-                mimir = failing("mimir", "mimir", "Mimir blocks are not in S3: acme/01HB"),
+                mimir = failing("mimir", "mimir", "Mimir's ingester shutdown failed (status 503)"),
                 tempo = failing("tempo", "tempo", "Tempo still receives or holds traces"),
             ).saveTail(control, state, all)
 
         assertThat(outcome.saved.keys).containsExactlyInAnyOrder(TailSignal.LOGS, TailSignal.PROFILES, TailSignal.ANNOTATIONS)
         assertThat(outcome.failed.keys).containsExactlyInAnyOrder(TailSignal.METRICS, TailSignal.TRACES)
-        assertThat(outcome.failed.getValue(TailSignal.METRICS)).hasMessageContaining("acme/01HB")
+        assertThat(outcome.failed.getValue(TailSignal.METRICS)).hasMessageContaining("status 503")
         assertThat(outcome.failed.getValue(TailSignal.TRACES)).hasMessageContaining("Tempo still receives")
         assertThat(outcome.failed.getValue(TailSignal.METRICS).backends).containsEntry("mimir", BackendState.SCALED_TO_ZERO)
+    }
+
+    /** An HTTP error, a Kubernetes API error and a failed remote command fail their signal; they do not escape the save. */
+    @Test
+    fun `an HTTP or Kubernetes error fails only its signal`() {
+        val outcome =
+            service(
+                loki = throwing("loki", SignalReport.Logs, IOException("connection reset")),
+                mimir = throwing("mimir", SignalReport.Metrics, KubernetesClientException("forbidden")),
+                tempo =
+                    throwing(
+                        "tempo",
+                        SignalReport.Traces,
+                        RemoteCommandFailedException("curl tempo", "", "connection refused", "Tempo's readiness check failed"),
+                    ),
+            ).saveTail(control, state, all)
+
+        assertThat(outcome.failed.keys).containsExactlyInAnyOrder(TailSignal.LOGS, TailSignal.METRICS, TailSignal.TRACES)
+        assertThat(outcome.failed.getValue(TailSignal.LOGS)).hasMessageContaining("connection reset")
+        assertThat(outcome.failed.getValue(TailSignal.METRICS)).hasMessageContaining("forbidden")
+        assertThat(outcome.failed.getValue(TailSignal.TRACES)).hasMessageContaining("Tempo's readiness check failed")
+        assertThat(outcome.saved.keys).containsExactlyInAnyOrder(TailSignal.PROFILES, TailSignal.ANNOTATIONS)
+    }
+
+    /** A failure of any other type still fails only its signal: it never escapes and loses the others. */
+    @Test
+    fun `an unexpected exception fails only its signal`() {
+        val outcome =
+            service(
+                mimir = FakeFlush("mimir", SignalReport.Metrics, "mimir") { throw UnsupportedOperationException("unexpected") },
+            ).saveTail(control, state, all)
+
+        assertThat(outcome.failed.keys).containsExactly(TailSignal.METRICS)
+        assertThat(outcome.failed.getValue(TailSignal.METRICS).step).isEqualTo(FlushStep.MIMIR_SHUTDOWN)
+        assertThat(outcome.failed.getValue(TailSignal.METRICS)).hasMessageContaining("unexpected")
+        assertThat(outcome.failed.getValue(TailSignal.METRICS).backends).containsEntry("mimir", BackendState.SCALED_TO_ZERO)
+        assertThat(outcome.saved.keys).contains(TailSignal.LOGS, TailSignal.TRACES, TailSignal.ANNOTATIONS)
+    }
+
+    @Test
+    fun `a record that fails with an unexpected exception fails only its signal`() {
+        val outcome =
+            service().saveTail(control, state, all) { signal, _ ->
+                if (signal == TailSignal.METRICS) throw SerializationException("state.json could not be encoded")
+            }
+
+        assertThat(outcome.failed.keys).containsExactly(TailSignal.METRICS)
+        assertThat(outcome.failed.getValue(TailSignal.METRICS).step).isEqualTo(FlushStep.RECORD_METRICS)
+        assertThat(outcome.saved.keys).contains(TailSignal.LOGS, TailSignal.TRACES, TailSignal.ANNOTATIONS)
+    }
+
+    @Test
+    fun `an unexpected exception from the collector stop fails only traces`() {
+        sendersFailure = UncheckedIOException(IOException("socket closed"))
+
+        val outcome = service().saveTail(control, state, all)
+
+        assertThat(outcome.failed.keys).containsExactly(TailSignal.TRACES)
+        assertThat(outcome.failed.getValue(TailSignal.TRACES).step).isEqualTo(FlushStep.SENDERS_STOP)
+        assertThat(outcome.saved.keys).contains(TailSignal.LOGS, TailSignal.METRICS, TailSignal.ANNOTATIONS)
+    }
+
+    @Test
+    fun `a failed annotations backup fails only annotations`() {
+        val failingBackups =
+            object : GrafanaAnnotationBackupService {
+                override fun backup(
+                    controlHost: ClusterHost,
+                    clusterState: ClusterState,
+                ): Result<GrafanaAnnotationBackupResult> = Result.failure(RuntimeException("S3 refused the upload"))
+            }
+
+        val outcome =
+            DefaultTeardownFlushService
+                .builder()
+                .lokiFlush(FakeFlush("loki", SignalReport.Logs, "loki"))
+                .mimirFlush(FakeFlush("mimir", SignalReport.Metrics, "mimir"))
+                .tempoDrain(FakeFlush("tempo", SignalReport.Traces, "tempo"))
+                .telemetrySenders(senders)
+                .annotationMirror(mirror)
+                .annotationBackupService(failingBackups)
+                .eventBus(eventBus)
+                .build()
+                .saveTail(control, state, all)
+
+        assertThat(outcome.failed.keys).containsExactly(TailSignal.ANNOTATIONS)
+        assertThat(outcome.failed.getValue(TailSignal.ANNOTATIONS)).hasMessageContaining("S3 refused the upload")
     }
 
     @Test
@@ -205,58 +301,10 @@ class TeardownFlushServiceTest {
     }
 
     @Test
-    fun `a Loki an earlier down stopped fails logs with that cause, and the mirror does not run`() {
-        val outcome = service(workloads = FakeWorkloads(mapOf("loki" to BackendState.SCALED_TO_ZERO))).saveTail(control, state, all)
-
-        val logs = outcome.failed.getValue(TailSignal.LOGS)
-        assertThat(logs.step).isEqualTo(FlushStep.LOKI_RUNNING)
-        assertThat(logs).hasMessageContaining("Loki was stopped by an earlier `down`")
-        assertThat(order).doesNotContain("mirror", "loki start")
-        assertThat(outcome.saved.keys).contains(TailSignal.METRICS, TailSignal.TRACES)
-    }
-
-    @Test
-    fun `a Mimir an earlier down stopped fails metrics with that cause, its flush never runs, and the rest are saved`() {
-        val outcome = service(workloads = FakeWorkloads(mapOf("mimir" to BackendState.SCALED_TO_ZERO))).saveTail(control, state, all)
-
-        val metrics = outcome.failed.getValue(TailSignal.METRICS)
-        assertThat(metrics.step).isEqualTo(FlushStep.MIMIR_RUNNING)
-        assertThat(metrics).hasMessageContaining("Mimir was stopped by an earlier `down`")
-        assertThat(metrics.backends).containsEntry("mimir", BackendState.SCALED_TO_ZERO)
-        assertThat(order).doesNotContain("mimir start")
-        assertThat(outcome.failed.keys).containsExactly(TailSignal.METRICS)
-        assertThat(outcome.saved.keys).containsExactlyInAnyOrder(
-            TailSignal.LOGS,
-            TailSignal.TRACES,
-            TailSignal.PROFILES,
-            TailSignal.ANNOTATIONS,
-        )
-    }
-
-    @Test
-    fun `a Tempo that is not ready fails traces with that cause, its drain never runs, and the rest are saved`() {
-        val outcome = service(workloads = FakeWorkloads(mapOf("tempo" to BackendState.NOT_READY))).saveTail(control, state, all)
-
-        val traces = outcome.failed.getValue(TailSignal.TRACES)
-        assertThat(traces.step).isEqualTo(FlushStep.TEMPO_RUNNING)
-        assertThat(traces).hasMessageContaining("Tempo was stopped by an earlier `down`")
-        assertThat(traces.backends).containsEntry("tempo", BackendState.NOT_READY)
-        assertThat(order).doesNotContain("tempo start")
-        assertThat(events).noneMatch { it is Event.Teardown.TempoDrainStarting }
-        assertThat(outcome.failed.keys).containsExactly(TailSignal.TRACES)
-        assertThat(outcome.saved.keys).containsExactlyInAnyOrder(
-            TailSignal.LOGS,
-            TailSignal.METRICS,
-            TailSignal.PROFILES,
-            TailSignal.ANNOTATIONS,
-        )
-    }
-
-    @Test
     fun `the drain start is announced with its timeout before Tempo's drain runs`() {
         val starting = Event.Teardown.TempoDrainStarting(Constants.TeardownFlush.TEMPO_DRAIN_TIMEOUT_SECONDS)
         var announcedBeforeDrain = false
-        val tempo = FakeFlush("tempo", SignalReport.Traces(4), "tempo") { announcedBeforeDrain = starting in events }
+        val tempo = FakeFlush("tempo", SignalReport.Traces, "tempo") { announcedBeforeDrain = starting in events }
 
         val outcome = service(tempo = tempo).saveTail(control, state, all)
 

@@ -1356,6 +1356,15 @@ sealed interface Event {
             override fun toDisplayString(): String = "Skipping packer VPC: $vpcId (use --packer to include)"
         }
 
+        /** `down --all` keeps the account compactor's VPC: the compactor outlives every cluster. */
+        @Serializable
+        @SerialName("Infra.CompactorVpcSkipping")
+        data class CompactorVpcSkipping(
+            val vpcId: String,
+        ) : Infra {
+            override fun toDisplayString(): String = "Skipping the account compactor's VPC: $vpcId"
+        }
+
         @Serializable
         @SerialName("Infra.PackerVpcSearching")
         data object PackerVpcSearching : Infra {
@@ -4166,13 +4175,11 @@ sealed interface Event {
             override fun toDisplayString(): String = "OTel collector stopped: its last batches reached Loki, Mimir and Tempo"
         }
 
-        /** Tempo holds no live trace and all [blocks] of its local blocks are in S3. */
+        /** Tempo holds no live trace and every local block is in S3. */
         @Serializable
         @SerialName("Teardown.TempoFlushed")
-        data class TempoFlushed(
-            val blocks: Int,
-        ) : Teardown {
-            override fun toDisplayString(): String = "Tempo drained: no live traces, and all $blocks local blocks are in S3"
+        data object TempoFlushed : Teardown {
+            override fun toDisplayString(): String = "Tempo drained: no live traces, and every local block is in S3"
         }
 
         /** Profiles need no flush: Pyroscope writes each batch to S3 before it accepts it. */
@@ -4201,27 +4208,18 @@ sealed interface Event {
                 }
         }
 
-        /**
-         * Loki's chunks and its index are in S3: its shutdown wrote [chunksFlushed] chunks, and [indexFiles]
-         * locally built index files were found there.
-         */
+        /** Loki's ingester flushed every chunk to S3, and Loki stopped, uploading its index. */
         @Serializable
         @SerialName("Teardown.LokiFlushed")
-        data class LokiFlushed(
-            val indexFiles: Int,
-            val chunksFlushed: Long,
-        ) : Teardown {
-            override fun toDisplayString(): String =
-                "Loki flushed: $chunksFlushed chunks written at shutdown, and all $indexFiles index files are in S3"
+        data object LokiFlushed : Teardown {
+            override fun toDisplayString(): String = "Loki flushed: every chunk is in S3, and Loki stopped and uploaded its index"
         }
 
-        /** Mimir's head is in blocks and [blocks] shippable blocks were found in S3. */
+        /** Mimir's ingester compacted its head and shipped its blocks, and Mimir stopped. */
         @Serializable
         @SerialName("Teardown.MimirFlushed")
-        data class MimirFlushed(
-            val blocks: Int,
-        ) : Teardown {
-            override fun toDisplayString(): String = "Mimir flushed: the head is in blocks and all $blocks blocks are in S3"
+        data object MimirFlushed : Teardown {
+            override fun toDisplayString(): String = "Mimir flushed: its head was shipped to S3, and Mimir stopped"
         }
 
         @Serializable
@@ -5647,6 +5645,114 @@ sealed interface Event {
             override fun toDisplayString(): String = "File not found: $path"
 
             override fun isError(): Boolean = true
+        }
+    }
+
+    // =========================================================================
+    // Event.Compactor — the account compactor service (ECS Fargate)
+    // =========================================================================
+
+    /**
+     * The account compactor: one ECS Fargate service per account that compacts the shared
+     * observability store. `up`, `down` and `observability compactor` start and stop it.
+     */
+    @Serializable
+    sealed interface Compactor : Event {
+        /** The compactor service was created or scaled from 0 to 1 task in [region]. */
+        @Serializable
+        @SerialName("Compactor.Started")
+        data class Started(
+            val region: String,
+            val taskDefinition: String,
+        ) : Compactor {
+            override fun toDisplayString(): String = "Account compactor started in $region ($taskDefinition)"
+        }
+
+        /** The compactor service already runs [runningCount] task(s) in [region]; it is left as it is. */
+        @Serializable
+        @SerialName("Compactor.AlreadyRunning")
+        data class AlreadyRunning(
+            val region: String,
+            val runningCount: Int,
+        ) : Compactor {
+            override fun toDisplayString(): String = "Account compactor already running in $region ($runningCount task(s))"
+        }
+
+        /**
+         * The compactor service in [region] runs no task yet: [pendingCount] task(s) are pending, or ECS
+         * has not placed the first one, as happens for a minute or two after a start. It is left as it is.
+         */
+        @Serializable
+        @SerialName("Compactor.Starting")
+        data class Starting(
+            val region: String,
+            val pendingCount: Int,
+        ) : Compactor {
+            override fun toDisplayString(): String = "Account compactor starting in $region ($pendingCount task(s) pending)"
+        }
+
+        /**
+         * The compactor service in [region] asks for [desiredCount] task(s) but runs none, has none
+         * pending, and its latest task stopped, for example because the task fails and restarts. It is
+         * left as it is.
+         */
+        @Serializable
+        @SerialName("Compactor.NoTaskRunning")
+        data class NoTaskRunning(
+            val region: String,
+            val desiredCount: Int,
+        ) : Compactor {
+            override fun toDisplayString(): String =
+                "Account compactor in $region asks for $desiredCount task(s) but runs none; " +
+                    "run `observability compactor status` to see why"
+
+            override fun isError(): Boolean = true
+        }
+
+        /**
+         * ECS in [region] refused a compactor call because the operator's IAM lacks the
+         * `EasyDBLabCompactor` policy. [detail] is ECS's message, naming the refused action.
+         */
+        @Serializable
+        @SerialName("Compactor.AccessDenied")
+        data class AccessDenied(
+            val region: String,
+            val detail: String,
+        ) : Compactor {
+            override fun toDisplayString(): String =
+                "ECS in $region refused the account compactor's call: $detail\n" +
+                    "Your IAM user or group needs the ${Constants.Compactor.OPERATOR_POLICY} policy. " +
+                    "Run `easy-db-lab show-iam-policies compactor` to print it, attach it, then run the command again."
+
+            override fun isError(): Boolean = true
+        }
+
+        /** The compactor service's desired count was set to 0 in [region]. */
+        @Serializable
+        @SerialName("Compactor.Stopped")
+        data class Stopped(
+            val region: String,
+        ) : Compactor {
+            override fun toDisplayString(): String = "Account compactor stopped in $region"
+        }
+
+        /** A stop found no compactor service in [region], so there was nothing to stop. */
+        @Serializable
+        @SerialName("Compactor.NotCreated")
+        data class NotCreated(
+            val region: String,
+        ) : Compactor {
+            override fun toDisplayString(): String = "No account compactor to stop in $region"
+        }
+
+        /** `down` left the compactor running: [clusterVpcs] other cluster VPCs still name the account bucket. */
+        @Serializable
+        @SerialName("Compactor.KeptRunning")
+        data class KeptRunning(
+            val clusterVpcs: List<String>,
+        ) : Compactor {
+            override fun toDisplayString(): String =
+                "Account compactor kept running: ${clusterVpcs.size} other cluster(s) use the account bucket"
         }
     }
 }

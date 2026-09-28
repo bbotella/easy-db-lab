@@ -5,6 +5,7 @@ import com.rustyrazorblade.easydblab.configuration.ClusterHost
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.ClusterStateManager
 import com.rustyrazorblade.easydblab.configuration.ConfigHashAnnotator
+import com.rustyrazorblade.easydblab.configuration.ObservabilityStore
 import com.rustyrazorblade.easydblab.configuration.TelemetryRedirect
 import com.rustyrazorblade.easydblab.configuration.User
 import com.rustyrazorblade.easydblab.configuration.beyla.BeylaManifestBuilder
@@ -87,6 +88,7 @@ class DefaultObservabilityStackService(
     private val yaceManifestBuilder: YaceManifestBuilder,
     private val kubeStateMetricsManifestBuilder: KubeStateMetricsManifestBuilder,
     private val configChangeReport: ConfigChangeReport,
+    private val tenantDirectory: TenantDirectory,
 ) : ObservabilityStackService {
     companion object {
         private const val DEFAULT_NAMESPACE = "default"
@@ -118,29 +120,9 @@ class DefaultObservabilityStackService(
                     CollectorResources.build(otelManifestBuilder, controlNode, clusterState, user.region, scrapeConfigs),
                 )
 
-            // Collectors and supporting infra deploy in both modes; the local telemetry backends and
-            // Grafana are local-mode only. The Pyroscope server directory and dashboard upload hang
-            // off those, so they are guarded the same way.
-            val stages =
-                buildList {
-                    add(Stage("kube-state-metrics", kubeStateMetricsManifestBuilder.buildAllResources()))
-                    add(Stage("Fluent Bit Journald", journaldOtelManifestBuilder.buildAllResources()))
-                    add(Stage("ebpf_exporter", ebpfExporterManifestBuilder.buildAllResources()))
-                    add(Stage("Registry", registryManifestBuilder.buildAllResources()))
-                    add(Stage("S3 Manager", s3ManagerManifestBuilder.buildAllResources()))
-                    add(Stage("Beyla", beylaManifestBuilder.buildAllResources()))
-                    add(Stage("YACE", yaceManifestBuilder.buildAllResources()))
-                    if (telemetryRedirect == null) {
-                        add(Stage("Mimir", mimirManifestBuilder.buildAllResources()))
-                        add(Stage("Loki", lokiManifestBuilder.buildAllResources()))
-                        add(Stage("Tempo", tempoManifestBuilder.buildAllResources()))
-                        add(Stage("Pyroscope", pyroscopeManifestBuilder.buildAllResources()))
-                    } else {
-                        // Redirect: the eBPF agent still runs on every node, pointed at the external
-                        // Pyroscope; the server does not exist here.
-                        add(Stage("Pyroscope Agent", pyroscopeManifestBuilder.buildAgentResources(telemetryRedirect)))
-                    }
-                }
+            // The local backends and Grafana are local-mode only. The Pyroscope server directory and
+            // dashboard upload hang off those, so they are guarded the same way.
+            val stages = buildStages(telemetryRedirect)
 
             // The Pyroscope server, Tempo, Mimir and Loki write to host directories; the agents do
             // not, so prepare them only in local mode.
@@ -172,9 +154,7 @@ class DefaultObservabilityStackService(
 
             if (telemetryRedirect == null) {
                 prepareGrafanaDirectory(controlNode)
-                dashboardService.uploadDashboards(controlNode, clusterState.tenant()).getOrElse { exception ->
-                    error("Failed to upload dashboards: ${exception.message}")
-                }
+                uploadDashboards(controlNode, clusterState)
             }
 
             // Grafana is applied by the dashboard service, not a stage, and rolls on a datasource change.
@@ -205,6 +185,42 @@ class DefaultObservabilityStackService(
                     error("Observability stack did not become ready: ${exception.message}")
                 }
         }
+
+    /**
+     * The stages to apply after the collector. Collectors and supporting infra deploy in both modes;
+     * the local telemetry backends are local-mode only.
+     */
+    private fun buildStages(telemetryRedirect: TelemetryRedirect?): List<Stage> =
+        buildList {
+            add(Stage("kube-state-metrics", kubeStateMetricsManifestBuilder.buildAllResources()))
+            add(Stage("Fluent Bit Journald", journaldOtelManifestBuilder.buildAllResources()))
+            add(Stage("ebpf_exporter", ebpfExporterManifestBuilder.buildAllResources()))
+            add(Stage("Registry", registryManifestBuilder.buildAllResources()))
+            add(Stage("S3 Manager", s3ManagerManifestBuilder.buildAllResources()))
+            add(Stage("Beyla", beylaManifestBuilder.buildAllResources()))
+            add(Stage("YACE", yaceManifestBuilder.buildAllResources()))
+            if (telemetryRedirect == null) {
+                add(Stage("Mimir", mimirManifestBuilder.buildAllResources()))
+                add(Stage("Loki", lokiManifestBuilder.buildAllResources()))
+                add(Stage("Tempo", tempoManifestBuilder.buildAllResources()))
+                add(Stage("Pyroscope", pyroscopeManifestBuilder.buildAllResources()))
+            } else {
+                // Redirect: the eBPF agent still runs on every node, pointed at the external
+                // Pyroscope; the server does not exist here.
+                add(Stage("Pyroscope Agent", pyroscopeManifestBuilder.buildAgentResources(telemetryRedirect)))
+            }
+        }
+
+    /** Uploads the dashboards with a datasource for every tenant in the shared store, so each deploy picks up new ones. */
+    private fun uploadDashboards(
+        controlNode: ClusterHost,
+        clusterState: ClusterState,
+    ) {
+        val tenants = tenantDirectory.list(ObservabilityStore.from(clusterState).bucket, clusterState.tenant())
+        dashboardService.uploadDashboards(controlNode, tenants).getOrElse { exception ->
+            error("Failed to upload dashboards: ${exception.message}")
+        }
+    }
 
     private fun applyStage(
         stage: Stage,

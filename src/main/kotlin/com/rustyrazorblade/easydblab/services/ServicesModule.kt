@@ -74,6 +74,7 @@ val servicesModule =
         // Reads the Tailscale client on the developer's own machine. Explicit factory so the
         // constructor defaults (the real CLI runner, the status timeout) apply.
         factory<LocalTailscaleClient> { DefaultLocalTailscaleClient() }
+        factory { ProvisioningPreflight(get(), get()) }
 
         // Proves this machine has a route to the cluster's private network before `up` relies
         // on one. Short timeout: this is a fail-fast check, not a wait-for-ready loop.
@@ -119,30 +120,31 @@ val servicesModule =
         singleOf(::DefaultKitEndpointResolver) bind KitEndpointResolver::class
         factoryOf(::DefaultOtelSyncService) bind OtelSyncService::class
         factory { ConfigChangeReport(get<K8sService>(), get()) }
+        factory { TenantDirectory(get()) }
         factoryOf(::DefaultObservabilityStackService) bind ObservabilityStackService::class
         factoryOf(::DefaultMetricsRegistryService) bind MetricsRegistryService::class
         factory<GrafanaAnnotationBackupService> {
             DefaultGrafanaAnnotationBackupService(get(), get(), get())
         }
-        // The pre-teardown save `down` runs: Loki check, annotation mirror and collector stop, then
+        // The pre-teardown save `down` runs: annotation mirror and collector stop, then
         // the Loki and Mimir flushes, the Tempo drain, the profiles report and the annotations backup
         // in parallel.
         factory<BackendWorkloads> { K8sBackendWorkloads(get()) }
         factory<TelemetrySenders> { K8sTelemetrySenders(get()) }
-        factory { LokiTailFlush(get(), get(), get(), get()) }
-        factory { MimirTailFlush(get(), get(), get(), get()) }
+        factory { LokiTailFlush(get(), get()) }
+        factory { MimirTailFlush(get(), get()) }
         factory { TempoTailFlush(get(), get()) }
         factory<TeardownFlushService> {
-            DefaultTeardownFlushService(
-                lokiFlush = get<LokiTailFlush>(),
-                mimirFlush = get<MimirTailFlush>(),
-                tempoDrain = get<TempoTailFlush>(),
-                workloads = get(),
-                telemetrySenders = get(),
-                annotationMirror = get(),
-                annotationBackupService = get(),
-                eventBus = get(),
-            )
+            DefaultTeardownFlushService
+                .builder()
+                .lokiFlush(get<LokiTailFlush>())
+                .mimirFlush(get<MimirTailFlush>())
+                .tempoDrain(get<TempoTailFlush>())
+                .telemetrySenders(get())
+                .annotationMirror(get())
+                .annotationBackupService(get())
+                .eventBus(get())
+                .build()
         }
         factory<TeardownBackupService> { DefaultTeardownBackupService(get(), get()) }
         singleOf(::DefaultObservabilityHttp) bind ObservabilityHttp::class

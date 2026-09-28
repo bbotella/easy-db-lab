@@ -3,6 +3,7 @@ package com.rustyrazorblade.easydblab.services
 import com.rustyrazorblade.easydblab.BaseKoinTest
 import com.rustyrazorblade.easydblab.Constants
 import com.rustyrazorblade.easydblab.configuration.ClusterHost
+import com.rustyrazorblade.easydblab.configuration.ClusterS3Path
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.ClusterStateManager
 import com.rustyrazorblade.easydblab.configuration.CniMode
@@ -11,6 +12,7 @@ import com.rustyrazorblade.easydblab.configuration.TelemetryRedirect
 import com.rustyrazorblade.easydblab.configuration.beyla.BeylaManifestBuilder
 import com.rustyrazorblade.easydblab.configuration.ebpfexporter.EbpfExporterManifestBuilder
 import com.rustyrazorblade.easydblab.configuration.grafana.GrafanaManifestBuilder
+import com.rustyrazorblade.easydblab.configuration.grafana.TenantSet
 import com.rustyrazorblade.easydblab.configuration.kubestatemetrics.KubeStateMetricsManifestBuilder
 import com.rustyrazorblade.easydblab.configuration.loki.LokiManifestBuilder
 import com.rustyrazorblade.easydblab.configuration.mimir.MimirManifestBuilder
@@ -166,7 +168,20 @@ class ObservabilityStackServiceTest : BaseKoinTest() {
                 getKoin().get(),
                 getKoin().get(),
                 ConfigChangeReport(mockK8sService, getKoin().get()),
+                sharedStoreTenants(),
             )
+    }
+
+    /** The shared store holds another cluster's tenant and Mimir's own cluster directory. */
+    private fun sharedStoreTenants(): TenantDirectory {
+        val objectStore = mock<ObjectStore>()
+        whenever(objectStore.listFiles(any(), eq(false), any())).thenReturn(
+            listOf(
+                "mimir/acme/",
+                "mimir/__mimir_cluster/",
+            ).map { ObjectStore.FileInfo(ClusterS3Path.fromKey("easy-db-lab-test", it), 0, "") },
+        )
+        return TenantDirectory(objectStore)
     }
 
     private fun stateWithCni(cni: CniMode) =
@@ -230,8 +245,8 @@ class ObservabilityStackServiceTest : BaseKoinTest() {
         assertThat(kindNames).contains("Deployment/mimir", "Deployment/loki", "Deployment/tempo", "Deployment/pyroscope")
         assertThat(names).doesNotContain("victoriametrics", "victorialogs")
 
-        // Dashboards are uploaded only in local mode.
-        verify(mockDashboardService).uploadDashboards(any(), eq("default"))
+        // Dashboards are uploaded only in local mode, with a datasource for every tenant in the store.
+        verify(mockDashboardService).uploadDashboards(any(), eq(TenantSet("default", listOf("acme", "default"))))
 
         // Both on-node data directories are prepared over SSH.
         val commands = remoteCommands()

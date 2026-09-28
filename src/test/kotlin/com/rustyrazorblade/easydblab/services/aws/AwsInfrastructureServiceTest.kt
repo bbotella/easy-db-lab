@@ -1,5 +1,6 @@
 package com.rustyrazorblade.easydblab.services.aws
 
+import com.rustyrazorblade.easydblab.Constants
 import com.rustyrazorblade.easydblab.events.EventBus
 import com.rustyrazorblade.easydblab.events.EventEnvelope
 import com.rustyrazorblade.easydblab.events.EventListener
@@ -719,6 +720,22 @@ class AwsInfrastructureServiceTest {
             assertThat(result.success).isTrue()
             verify(vpcService).deleteVpc("vpc-packer")
         }
+
+        /** The account compactor outlives every cluster, so even `down --all --packer` keeps its VPC. */
+        @Test
+        fun `should always keep the account compactor's VPC`() {
+            whenever(vpcService.findVpcsByTag(any(), any())).thenReturn(listOf("vpc-compactor", "vpc-cluster"))
+            whenever(vpcService.getVpcName("vpc-compactor")).thenReturn(Constants.Vpc.COMPACTOR_VPC_NAME)
+            setupEmptyResourcesFor("vpc-compactor")
+            whenever(vpcService.getVpcName("vpc-cluster")).thenReturn("test-cluster")
+            setupEmptyResourcesFor("vpc-cluster")
+
+            val result = service.teardownAllTagged(dryRun = false, includePackerVpc = true)
+
+            assertThat(result.resourcesDeleted.map { it.vpcId }).containsExactly("vpc-cluster")
+            verify(vpcService, never()).deleteVpc("vpc-compactor")
+            verify(vpcService).deleteVpc("vpc-cluster")
+        }
     }
 
     @Nested
@@ -781,6 +798,23 @@ class AwsInfrastructureServiceTest {
             assertThat(result.resourcesDeleted).hasSize(1)
             // Should NOT delete anything in dryRun mode
             verify(vpcService, never()).deleteVpc(any())
+        }
+    }
+
+    @Nested
+    inner class EnsureReusableInfrastructure {
+        @Test
+        fun `an existing compactor VPC gets its subnet in the requested availability zone`() {
+            val vpcId = "vpc-compactor"
+            whenever(vpcService.findVpcByName(Constants.Vpc.COMPACTOR_VPC_NAME)).thenReturn(vpcId)
+            whenever(vpcService.findOrCreateInternetGateway(any(), any(), any())).thenReturn("igw-1")
+            whenever(vpcService.findOrCreateSubnet(any(), any(), any(), any(), any())).thenReturn("subnet-1")
+            whenever(vpcService.findOrCreateSecurityGroup(any(), any(), any(), any())).thenReturn("sg-1")
+
+            val infrastructure = service.ensureReusableInfrastructure(InfrastructureConfig.forCompactor("us-east-1b"))
+
+            verify(vpcService).findOrCreateSubnet(eq(vpcId), any(), any(), any(), eq("us-east-1b"))
+            assertThat(infrastructure.subnetIds).containsExactly("subnet-1")
         }
     }
 
