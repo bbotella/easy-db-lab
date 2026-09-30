@@ -13,9 +13,60 @@ When running multiple environments side by side, Grafana displays the cluster na
 - **Sidebar org name** - The organization name in the sidebar shows the cluster name
 - **Home dashboard** - The System Overview dashboard is set as the home page instead of the default Grafana welcome page
 
+### Tenant pickers and the current cluster
+
+Every dashboard has a picker for each kind of data it shows: **Metrics**, **Logs** and **Traces**. Each picker lists the cluster's own tenant (the default), every tenant in the shared store by name, and one "all tenants" choice. Change the pickers to read another tenant's tests; every panel, variable, annotation and link on the dashboard follows them, and a link to another dashboard keeps them. Profiles have one datasource only, so there is no profiles picker.
+
+A dashboard with a `cluster` variable opens on the current cluster, so it shows this cluster's data with no selection by hand.  The variable lists every cluster of the tenant the Metrics picker selects.  You can select more than one cluster, or "All".  With the "all tenants" datasource in each picker and "All" in `cluster`, a dashboard shows every cluster of every tenant.  Every place a dashboard shows a cluster names it by its short name: its name and the first 8 characters of its id, for example `test-1a2b3c4d`.  That covers the cluster pickers, legends, panel titles and tables.  The pickers still select the full id, so queries and links read the whole `<name>-<id>`.
+
+### Tests
+
+The **Tests** dashboard (Infrastructure folder) lists every test (cluster) of the tenant the Metrics picker selects, with its start, end and duration: its first and last `up` sample within **Lookback** (default 180 days).  The dashboard opens on the last 24 hours; the list and the **Test** picker still cover the whole **Lookback**.  Torn-down clusters are listed too. Click a cluster for:
+
+- **System Overview** or **Cassandra Overview**, opened on that test's window;
+- **Compare with the current cluster**, which opens Cluster Comparison with that test as the baseline and the current cluster as the candidate;
+- **Show documents**, which selects the test and shows its documents below the list.
+
+### Comparing two tests
+
+Cluster Comparison, A/B Comparison and System A/B Comparison compare two runs of any lengths: pick them in **Baseline** and **Candidate** (any cluster of the tenant within Lookback; both default to the current cluster). Three rows at the top show:
+
+- **Overlay**: both runs on one time axis, from a common start. The axis covers the longer run.
+- **Side by side**: each run on its own time range, at its real times.
+- **Summary and documents**: each figure over each run's whole window, the difference in percent, and both runs' documents.
+
+A/B Comparison compares builds within one cluster, so its deltas are per cluster.  To compare two clusters, use Cluster Comparison.
+
+These rows need the dashboard's relative time range (the default, ending now); an absolute range turns their own time ranges off. In the overlay, annotations sit at their real time, so they line up only with a run that did not move.
+
+### Test documents
+
+Attach notes and results to a test as markdown files:
+
+```bash
+easy-db-lab report upload results.md notes.md
+```
+
+The files go to the test's folder in the account bucket, `reports/<tenant>/<name>-<id>/`, each with an HTML copy, and one `index.html` holds them all, each under its own heading. Only `.md` files named with letters, digits, `.`, `_` and `-` are accepted, and `index.md` is refused.  Each name can occur only one time in a command.  The command names every file it refuses and uploads nothing.  If an upload fails, the command names the failed file and each document it already stored; run the command again. A file with the name of a stored document replaces it. The command uses your own AWS credentials and needs only the workspace, so it works after `down`. `up` writes the index of a new test, which says "No documents yet".
+
+The Tests dashboard and the comparison dashboards show the documents through a read-only web server in the Grafana pod (port 3080 of the control node).  The server answers only `GET` requests for document paths under `/reports/`; it answers 400 for a path with other characters, and it drops the query string.  Pick the tenant folder with **Documents tenant**; it defaults to the cluster's own tenant.
+
+Two `report upload` runs for one test at the same moment can each rebuild the index without the other's document. The document itself is stored; the next upload puts it back in the index.
+
 ### System Dashboard
 
 Shows CPU, memory, disk I/O, network I/O, and load average for all cluster nodes via OpenTelemetry metrics.
+
+System Overview and System A/B Comparison have a **Role** picker.  It selects hosts by the role in their name:
+
+| Role | Hosts |
+|------|-------|
+| db | `db0`, `db1`, ... |
+| app | `app0`, `app1`, ... |
+| control | `control0` |
+| spark | EMR nodes, which EC2 names `ip-...` |
+
+Pick one or more roles to show every host of those roles, with no host selection by hand.  The host pickers list only hosts of the selected roles, and every panel shows only them.  The default is All, which shows every host.  A link from these dashboards to another dashboard keeps the selected roles.
 
 ### AWS CloudWatch Overview
 
@@ -155,6 +206,7 @@ All of a cluster's observability data lands in the account bucket. Each backend 
 | `mimir/<tenant>/` | Mimir blocks | Mimir, while the cluster runs, and its flush at `down` |
 | `loki/` | Loki chunks (under the tenant) and TSDB index (under `index/`) | Loki, while the cluster runs, and its flush at `down` |
 | `grafana/annotations/<tenant>/<yyyyMMdd-HHmmss>_<name>-<clusterId>.json` | Grafana annotations | `grafana backup`, and `down` |
+| `reports/<tenant>/<name>-<id>/` | Test documents: your `.md` files, an HTML copy of each, and `index.html` | `report upload`, and `up` (the index) |
 
 An annotations backup never overwrites another: when one of the same cluster already exists under that second's name (a `grafana backup` just before `down`, say), the new one takes the next free second.
 
@@ -162,11 +214,11 @@ Cluster configuration stays under `clusters/<name>-<id>/config/`. The observabil
 
 **Native multi-tenancy.** Mimir, Loki, Tempo and Pyroscope run with multi-tenancy on; the tenant is their tenant ID. Every writer sends it in the `X-Scope-OrgID` header — the OTel collector's metrics, logs and trace exporters, Tempo's metrics generator, the Alloy eBPF profiler, the Pyroscope Java agent (stress jobs, the Cassandra sidecar, EMR Spark, the Trino and Presto kits) and the Cassandra JFR shipper — on redirected clusters too. Every Grafana datasource sends it on every query, so a query from the cluster's Grafana returns its tenant's data. A query that sends no tenant, such as one made directly against a backend's HTTP API, reads nothing; add `-H 'X-Scope-OrgID: <tenant>'`. Pyroscope's own UI on port 4040 asks for the tenant once per browser; see [Profiling](profiling.md#pyroscope-ui).
 
-**Nothing is deleted automatically.** No S3 lifecycle, expiry or retention rule is set on any bucket, and `down` deletes no data. The cluster's IAM role is denied deletes under `mimir/`, `loki/`, `tempo/` and `grafana/`. `pyroscope/` is left out: Pyroscope's own compaction writes a merged block and then removes the segments it merged, which loses nothing. Mimir runs no compactor and no retention. Loki's compactor is idle, its retention is off and its delete API is not served. Tempo runs with compaction — which is also what runs retention in Tempo 3 — turned off for every tenant, so no block is ever deleted. Pyroscope runs pure v2 storage with the metastore's retention cleanup off and no retention period; its v2 compaction merges this cluster's segments into blocks, which keeps their data.
+**Nothing is deleted automatically.** No S3 lifecycle, expiry or retention rule is set on any bucket, and `down` deletes no data. The cluster's IAM role is denied deletes under `mimir/`, `loki/`, `tempo/`, `grafana/` and `reports/`. `pyroscope/` is left out: Pyroscope's own compaction writes a merged block and then removes the segments it merged, which loses nothing. Mimir runs no compactor and no retention. Loki's compactor is idle, its retention is off and its delete API is not served. Tempo runs with compaction — which is also what runs retention in Tempo 3 — turned off for every tenant, so no block is ever deleted. Pyroscope runs pure v2 storage with the metastore's retention cleanup off and no retention period; its v2 compaction merges this cluster's segments into blocks, which keeps their data.
 
 **Uploads within minutes.** Each backend uploads while the cluster runs, so other clusters in the tenant can read the data: a metric sample is in `mimir/` in about 2 minutes, a span in `tempo/` in about 2 minutes, and a log line of a stream that keeps writing in `loki/` in about an hour, with its index file at Loki's next 15-minute index rotation. Profiles are in `pyroscope/` as soon as Pyroscope accepts them.
 
-**Durability across restarts.** Tempo cuts a block at most every minute and uploads it while the cluster runs. Both of its write-ahead logs live on the control node's disk (`/mnt/db1/tempo`), so a restart of the Tempo pod does not lose spans it received but has not yet uploaded. Tempo acknowledges a push while the spans are still in memory and writes them to the WAL about 2 seconds later (10 seconds at most for a trace that is still receiving spans). A graceful restart writes every in-memory trace to the WAL first and loses nothing. A Tempo process killed outright loses only the spans from those last 2 seconds. The WAL is not fsynced, so a crash of the control node itself can also lose WAL data the operating system had not yet written to disk. Tempo keeps every span it receives: its per-tenant limits on live traces and trace size are off, and its ingestion rate limit is 1 GB/s, so a stress load is not thinned out. It also stores every attribute value in full: the distributor's `max_attribute_bytes` is 0, where Tempo's default of 2048 bytes would truncate long values such as `process.command_line`. Any span Tempo does drop is counted in `tempo_discarded_spans_total`. The Pyroscope metastore index lives on `/mnt/db1/pyroscope`, so profiles written before a Pyroscope restart are still returned after it.
+**Durability across restarts.** Tempo cuts a block at most every minute and uploads it while the cluster runs. Both of its write-ahead logs live on the control node's disk (`/mnt/db1/tempo`), so a restart of the Tempo pod does not lose spans it received but has not yet uploaded. Tempo acknowledges a push while the spans are still in memory and writes them to the WAL about 2 seconds later (10 seconds at most for a trace that is still receiving spans). A graceful restart writes every in-memory trace to the WAL first and loses nothing. A Tempo process killed outright loses only the spans from those last 2 seconds. The WAL is not fsynced, so a crash of the control node itself can also lose WAL data the operating system had not yet written to disk. Tempo keeps every span it receives: its per-tenant limits on live traces and trace size are off, and its ingestion rate limit is 1 GB/s, so a stress load is not thinned out there. The stress job itself traces only 1% of its requests, so request rates for `cassandra-easy-stress` on the Trace RED and Tempo dashboards show 1% of the real rate. It also stores every attribute value in full: the distributor's `max_attribute_bytes` is 0, where Tempo's default of 2048 bytes would truncate long values such as `process.command_line`. Any span Tempo does drop is counted in `tempo_discarded_spans_total`. The Pyroscope metastore index lives on `/mnt/db1/pyroscope`, so profiles written before a Pyroscope restart are still returned after it.
 
 **Known limit: Pyroscope after teardown.** Pyroscope v2 finds blocks only through the cluster's local metastore index and cannot rebuild it from S3. After `down`, the profiles stay in `pyroscope/` but cannot be queried without that index, which `down` does not save.
 

@@ -146,7 +146,7 @@ data class CassandraVersionInfo(
 @Serializable
 data class AccessInfo(
     val observability: ObservabilityAccess? = null,
-    val clickhouse: ClickHouseAccess? = null,
+    val kits: List<KitAccess>? = null,
     val s3Manager: S3ManagerAccess? = null,
     val registry: RegistryAccess? = null,
 )
@@ -160,11 +160,24 @@ data class ObservabilityAccess(
     val pyroscope: String,
 )
 
+/**
+ * A running kit and the endpoints its `kit.yaml` declares, resolved to each host's address.
+ * [endpointsUnavailable] says why [endpoints] is empty when the `kit.yaml` cannot be read, and is
+ * absent when it was read, so an empty list with no reason means the kit declares no endpoints.
+ */
 @Serializable
-data class ClickHouseAccess(
-    val playUi: String,
-    val httpInterface: String,
-    val nativePort: String,
+data class KitAccess(
+    val name: String,
+    val endpoints: List<KitEndpointAccess>,
+    val endpointsUnavailable: String? = null,
+)
+
+/** One declared kit endpoint on one host. */
+@Serializable
+data class KitEndpointAccess(
+    val name: String,
+    val type: String,
+    val address: String,
 )
 
 @Serializable

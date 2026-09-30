@@ -196,6 +196,8 @@ dependencies {
 
     // Utilities
     implementation(libs.classgraph)
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.ext.gfm.tables)
     implementation(libs.commons.io)
     implementation(libs.commons.text)
 
@@ -420,7 +422,18 @@ tasks.register("testScripts") {
         "testCassandraBuildPlan",
         "testCassandraResolveRef",
         "testSysbenchStartScript",
+        "testSysbenchStopScript",
+        "testPyroscopeKitLabels",
     )
+}
+
+// Unit-test the Pyroscope labels the presto and trino start scripts put on their profiles: the
+// cluster label from cluster-config, not the bare cluster name. kubectl and helm are stubbed.
+tasks.register<Exec>("testPyroscopeKitLabels") {
+    group = "Verification"
+    description = "Unit-test the Pyroscope labels of the presto and trino kit start scripts"
+    workingDir = file(".")
+    commandLine = listOf("bash", "src/test/shell/pyroscope-kit-labels.test.sh")
 }
 
 // Unit-test the sysbench kit's start script: it pushes its figures as OTLP JSON to the collector,
@@ -430,6 +443,15 @@ tasks.register<Exec>("testSysbenchStartScript") {
     description = "Unit-test the sysbench kit start script"
     workingDir = file(".")
     commandLine = listOf("bash", "src/test/shell/sysbench-start.test.sh")
+}
+
+// Unit-test the sysbench kit's stop script: it finishes and removes its cleanup pod when the target
+// database is already gone. kubectl is stubbed.
+tasks.register<Exec>("testSysbenchStopScript") {
+    group = "Verification"
+    description = "Unit-test the sysbench kit stop script"
+    workingDir = file(".")
+    commandLine = listOf("bash", "src/test/shell/sysbench-stop.test.sh")
 }
 
 // Unit-test bin/export-workload-metrics: it must export only series live in its window, from Mimir,
@@ -562,6 +584,15 @@ tasks.register<Exec>("testCassandraUseScript") {
     commandLine = listOf("bash", "packer/cassandra/bin/use-cassandra.test.sh")
 }
 
+// Unit-test wait-for-up-normal: it fails fast when Cassandra dies and at a deadline when it never
+// reaches NORMAL.  cassandra-pid, ss, sjk-mx, systemctl, sleep and the clock are stubbed.
+tasks.register<Exec>("testCassandraWaitScript") {
+    group = "Verification"
+    description = "Unit-test the wait-for-up-normal script"
+    workingDir = file(".")
+    commandLine = listOf("bash", "packer/cassandra/bin/wait-for-up-normal.test.sh")
+}
+
 // Unit-test the agent selection cassandra.in.sh runs on every Cassandra start: deriving X.Y from
 // the release jar name (every shape, including the unparseable one) and mapping it to the AxonOps
 // agent. Also parses cassandra.in.sh under dash, which is the shell Cassandra actually sources it
@@ -591,6 +622,7 @@ tasks.register("testCassandraScripts") {
         "testCassandraInstallScript",
         "testCassandraInstallLoop",
         "testCassandraUseScript",
+        "testCassandraWaitScript",
         "testCassandraAgentSelection",
         "testCacheLib",
     )

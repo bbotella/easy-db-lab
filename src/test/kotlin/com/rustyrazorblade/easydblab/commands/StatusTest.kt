@@ -345,9 +345,63 @@ class StatusTest : BaseKoinTest() {
         val output = capturedOutput()
         assertThat(output).contains("=== KITS ===")
         // The rendered kit line, not a bare substring: "ClickHouse" also appears in the
-        // ClickHouse section's heading, so a loose match would pass without a kits listing.
+        // S3 bucket section, so a loose match would pass without a kits listing.
         assertThat(output).contains("○ clickhouse")
         assertThat(output).doesNotContain("trunk")
+    }
+
+    // A running kit's endpoints come from its own kit.yaml (the NodePorts its Service exposes),
+    // and only a kit recorded as running shows them. The packaged clickhouse kit.yaml is used so
+    // the test pins the real ports, not a copy of them.
+
+    @Test
+    fun `execute lists a running kit's declared NodePort endpoints under its KITS line`() {
+        setupBasicClusterState(runningKits = setOf("clickhouse"))
+        installPackagedKit("clickhouse")
+
+        Status().execute()
+
+        val output = capturedOutput()
+        assertThat(output).contains("✓ clickhouse")
+        assertThat(output).contains("http://10.0.1.100:30123", "http://10.0.1.101:30123", "10.0.1.100:30900")
+        assertThat(output).doesNotContain(":8123", ":9000")
+    }
+
+    @Test
+    fun `a stopped kit prints no endpoints`() {
+        // A bucket, because a present kubeconfig also renders the S3 Manager section.
+        setupBasicClusterStateWithS3Bucket("test-bucket")
+        installPackagedKit("clickhouse")
+        File(context.workingDirectory, Constants.K3s.LOCAL_KUBECONFIG).writeText("")
+
+        Status().execute()
+
+        val output = capturedOutput()
+        assertThat(output).contains("○ clickhouse")
+        assertThat(output).doesNotContain("30123", "8123", "Play UI")
+    }
+
+    // A running kit whose kit.yaml cannot be read has endpoints nobody can list. Status says so
+    // under the kit, rather than showing a running kit with no endpoints and no reason, and goes on.
+
+    @Test
+    fun `a running kit with an unreadable kit descriptor says its endpoints are unavailable`() {
+        setupBasicClusterState(runningKits = setOf("broken"))
+        File(createWorkspaceDir("broken"), Constants.Kit.CONFIG_FILE).writeText("name: [broken\nendpoints: {")
+
+        Status().execute()
+
+        val output = capturedOutput()
+        assertThat(output).contains("  ✓ broken\n    (endpoints unavailable: cannot read ${Constants.Kit.CONFIG_FILE})")
+        assertThat(output.substringAfter("=== KITS ===")).contains("=== CASSANDRA VERSION ===")
+    }
+
+    private fun installPackagedKit(name: String) {
+        val kitYaml =
+            checkNotNull(javaClass.getResource("/com/rustyrazorblade/easydblab/kits/$name/${Constants.Kit.CONFIG_FILE}")) {
+                "packaged kit $name not found"
+            }.readText()
+        File(createWorkspaceDir(name), Constants.Kit.CONFIG_FILE).writeText(kitYaml)
     }
 
     @Test
@@ -405,12 +459,11 @@ class StatusTest : BaseKoinTest() {
         assertThatThrownBy { Status().execute() }.isInstanceOf(StatusDegradedException::class.java)
 
         val events = outputHandler.messages.joinToString("\n")
-        // The two sections sourced from the private Kubernetes API (Fabric8) are unavailable...
+        // The one section sourced from the private Kubernetes API (Fabric8) is unavailable...
         assertThat(events).contains("STRESS JOBS")
-        assertThat(events).contains("CLICKHOUSE")
-        // ...each stating the proxy failure as its reason, not merely "unavailable".
+        // ...stating the proxy failure as its reason, not merely "unavailable".
         val reasonOccurrences = events.split("port never began accepting connections").size - 1
-        assertThat(reasonOccurrences).isEqualTo(2)
+        assertThat(reasonOccurrences).isEqualTo(1)
         // The database version is sourced over SSH, which never traverses the tunnel, so it is
         // NOT marked unavailable even though the proxy is down.
         assertThat(events).doesNotContain("DATABASE VERSION")
@@ -505,7 +558,7 @@ class StatusTest : BaseKoinTest() {
         whenever(mockClusterStateManager.load()).thenReturn(clusterState)
     }
 
-    private fun setupBasicClusterState() {
+    private fun setupBasicClusterState(runningKits: Set<String> = emptySet()) {
         val clusterState =
             ClusterState(
                 name = "test-cluster",
@@ -516,7 +569,7 @@ class StatusTest : BaseKoinTest() {
                 infrastructureStatus = InfrastructureStatus.UP,
                 createdAt = Instant.parse("2024-01-15T10:00:00Z"),
                 default = NodeState(version = "5.0"),
-            )
+            ).also { it.runningKits = runningKits }
         whenever(mockClusterStateManager.exists()).thenReturn(true)
         whenever(mockClusterStateManager.load()).thenReturn(clusterState)
     }

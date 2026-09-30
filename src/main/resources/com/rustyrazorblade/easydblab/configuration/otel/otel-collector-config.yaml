@@ -283,6 +283,27 @@ processors:
       resource_attributes:
         host.name:
           enabled: true
+  # An EMR node's collector sends its own host.name (and node_role spark-master or spark-worker)
+  # over OTLP to this collector. resource_detection overwrites host.name with this node's, which is
+  # right for a JVM in a pod (it reports the pod's name) and wrong for EMR: every Spark master and
+  # worker arrived as host_name="control0", collided with the real control node, and made the
+  # host-joined panels fail with "found duplicate series". metrics/otlp sets the EMR host aside
+  # before resource_detection and puts it back after.
+  transform/keep_emr_host:
+    # Fail fast: since the rename the transform processor ignores statement errors by default.
+    error_mode: propagate
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["easydblab.emr_host_name"], attributes["host.name"]) where IsMatch(attributes["node_role"], "^spark-(master|worker)$")
+  transform/restore_emr_host:
+    # Fail fast: since the rename the transform processor ignores statement errors by default.
+    error_mode: propagate
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["host.name"], attributes["easydblab.emr_host_name"]) where attributes["easydblab.emr_host_name"] != nil
+          - delete_key(attributes, "easydblab.emr_host_name")
   # Copy k8s.app.instance resource attribute to a log-level service attribute so
   # container logs share the same service field as journald logs.
   transform/add_service:
@@ -407,9 +428,32 @@ processors:
           - set(resource.attributes["source"], attributes["source"]) where attributes["source"] != nil
           - delete_key(attributes, "source") where attributes["source"] != nil
 
-  # Extract node_role from K8s node label "type" (db, app) set during K3s agent join.
-  # pod_association enables enrichment of file_log/containers records with pod labels
-  # by matching k8s.pod.name + k8s.namespace.name resource attributes extracted from the log file path.
+  # The node's role from its host name (owner decision): db<N> is db, app<N> is app, control<N> is
+  # control. Host metrics and host log files carry no pod, so k8s_attributes can never find the
+  # node's `type` label for them, and they reached the store with no node_role at all. A node_role
+  # that is already set, by k8s_attributes for a scraped kit pod or by an EMR node's own collector,
+  # is left alone, so this runs after k8s_attributes.
+  transform/node_role_from_host:
+    # Fail fast: since the rename the transform processor ignores statement errors by default.
+    error_mode: propagate
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["node_role"], "db") where attributes["node_role"] == nil and IsMatch(attributes["host.name"], "^db[0-9]+$")
+          - set(attributes["node_role"], "app") where attributes["node_role"] == nil and IsMatch(attributes["host.name"], "^app[0-9]+$")
+          - set(attributes["node_role"], "control") where attributes["node_role"] == nil and IsMatch(attributes["host.name"], "^control[0-9]+$")
+    log_statements:
+      - context: resource
+        statements:
+          - set(attributes["node_role"], "db") where attributes["node_role"] == nil and IsMatch(attributes["host.name"], "^db[0-9]+$")
+          - set(attributes["node_role"], "app") where attributes["node_role"] == nil and IsMatch(attributes["host.name"], "^app[0-9]+$")
+          - set(attributes["node_role"], "control") where attributes["node_role"] == nil and IsMatch(attributes["host.name"], "^control[0-9]+$")
+
+  # Enriches records that carry their pod with the pod's labels (k8s.app.instance, which the kit
+  # dashboards select on) and the node's `type` label (db, app) as node_role, by matching the
+  # k8s.pod.name and k8s.namespace.name resource attributes. Container logs take them from the log
+  # file path; the kit metrics metrics/local scrapes by pod discovery take them from the Prometheus
+  # receiver, which sets them from each target. Host metrics and host log files carry no pod.
   k8s_attributes:
     passthrough: false
     pod_association:
@@ -622,23 +666,26 @@ extensions:
 service:
   extensions: [health_check]
   pipelines:
-    # Local metrics — resource_detection stamps host.name, k8s_attributes adds node_role from node label
+    # Local metrics — resource_detection stamps host.name, k8s_attributes adds the pod labels of
+    # scraped kit pods, and transform/node_role_from_host derives any node_role still unset from the host
     metrics/local:
       receivers: [host_metrics, prometheus]
-      processors: [resource/cluster, resource_detection, k8s_attributes, batch]
+      processors: [resource/cluster, resource_detection, k8s_attributes, transform/node_role_from_host, batch]
       exporters: [prometheus_remote_write]
     # OTLP metrics — the Cassandra JVM agent, the stress sidecar, Spark nodes. resource/cluster
     # stamps the cluster label to match local metrics; resource/drop_sdk_metadata removes the SDK's
-    # default resource, which would otherwise ride along as fifteen labels per series.
+    # default resource, which would otherwise ride along as fifteen labels per series. The EMR
+    # nodes' host.name survives resource_detection through transform/keep_emr_host and
+    # transform/restore_emr_host.
     metrics/otlp:
       receivers: [otlp]
-      processors: [resource/cluster, resource_detection, resource/drop_sdk_metadata, batch]
+      processors: [resource/cluster, transform/keep_emr_host, resource_detection, transform/restore_emr_host, resource/drop_sdk_metadata, batch]
       exporters: [prometheus_remote_write]
     # Host log files: system logs, tool-runner output and the Cassandra JVM GC log. Cassandra's
     # application logs are not here; they arrive once, over OTLP, in logs/otlp.
     logs/local:
       receivers: [file_log/system, file_log/tools, file_log/cassandra]
-      processors: [resource/cluster, resource_detection, k8s_attributes, batch]
+      processors: [resource/cluster, resource_detection, transform/node_role_from_host, batch]
       exporters: [otlp_http/logs]
     logs/containers:
       receivers: [file_log/containers, file_log/clickhouse-containers]

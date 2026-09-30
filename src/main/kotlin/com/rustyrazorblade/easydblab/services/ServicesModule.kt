@@ -36,6 +36,8 @@ import com.rustyrazorblade.easydblab.services.aws.AwsS3BucketService
 import com.rustyrazorblade.easydblab.services.aws.EC2InstanceService
 import com.rustyrazorblade.easydblab.services.aws.EMRService
 import com.rustyrazorblade.easydblab.services.aws.OpenSearchService
+import com.rustyrazorblade.easydblab.services.documents.DefaultTestDocumentService
+import com.rustyrazorblade.easydblab.services.documents.TestDocumentService
 import okhttp3.OkHttpClient
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.singleOf
@@ -61,7 +63,7 @@ val servicesModule =
         // posts the annotations later, after Grafana is deployed, so the state must be shared.
         single { CiliumInstallAnnotator(get(), get()) }
         single { LokiPushClient(get()) }
-        single<AnnotationMirror> { DefaultAnnotationMirror(get(), get<GrafanaDashboardService>(), get(), get()) }
+        single<AnnotationMirror> { DefaultAnnotationMirror(get(), get<GrafanaClient>(), get(), get()) }
         factory<CiliumService> { DefaultCiliumService(get(), get(), get()) }
         factory<CiliumInspectionService> { DefaultCiliumInspectionService(get()) }
         factory { CiliumNodeImageCheck(get()) }
@@ -106,8 +108,10 @@ val servicesModule =
         factoryOf(::LokiManifestBuilder)
         factoryOf(::YaceManifestBuilder)
         factoryOf(::KubeStateMetricsManifestBuilder)
-        factoryOf(::DefaultGrafanaDashboardService) bind GrafanaDashboardService::class
-        // GrafanaDashboardService calls the Grafana API on the control node's PRIVATE IP, so its
+        factoryOf(::DefaultGrafanaDeployService) bind GrafanaDeployService::class
+        factoryOf(::DefaultGrafanaClient) bind GrafanaClient::class
+        factory { DashboardInstallContextFactory(get()) }
+        // GrafanaClient calls the Grafana API on the control node's PRIVATE IP, so its
         // client must route through the SOCKS tunnel when active. Source it from the proxied factory
         // rather than a bare OkHttpClient (which, without the global socks property, would go direct).
         single<OkHttpClient> { get<HttpClientFactory>().createClient() }
@@ -121,6 +125,7 @@ val servicesModule =
         factoryOf(::DefaultOtelSyncService) bind OtelSyncService::class
         factory { ConfigChangeReport(get<K8sService>(), get()) }
         factory { TenantDirectory(get()) }
+        factory<TestDocumentService> { DefaultTestDocumentService(get()) }
         factoryOf(::DefaultObservabilityStackService) bind ObservabilityStackService::class
         factoryOf(::DefaultMetricsRegistryService) bind MetricsRegistryService::class
         factory<GrafanaAnnotationBackupService> {

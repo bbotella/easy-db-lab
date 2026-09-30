@@ -3,7 +3,7 @@
   "uid": "tempo-overview",
   "schemaVersion": 38,
   "version": 1,
-  "refresh": "30s",
+  "refresh": "",
   "time": {
     "from": "now-1h",
     "to": "now"
@@ -11,27 +11,54 @@
   "templating": {
     "list": [
       {
-        "name": "datasource",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Logs",
+        "multi": false,
+        "name": "logs_datasource",
+        "options": [],
+        "query": "loki",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Traces",
+        "multi": false,
+        "name": "traces_datasource",
+        "options": [],
+        "query": "tempo",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "name": "metrics_datasource",
         "type": "datasource",
         "pluginId": "prometheus",
         "query": "prometheus",
-        "label": "Data Source",
+        "label": "Metrics",
         "hide": 0,
         "refresh": 1,
         "multi": false,
         "includeAll": false,
-        "current": {
-          "selected": true,
-          "text": "Mimir",
-          "value": "mimir"
-        }
+        "current": {}
       },
       {
         "name": "cluster",
+        "regex": "/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/",
         "type": "query",
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${metrics_datasource}"
         },
         "label": "Cluster",
         "hide": 0,
@@ -40,7 +67,7 @@
         "includeAll": true,
         "query": {
           "qryType": 1,
-          "query": "label_values(traces_spanmetrics_calls_total, cluster)",
+          "query": "label_values(up, cluster)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "sort": 1
@@ -50,7 +77,7 @@
         "type": "query",
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${metrics_datasource}"
         },
         "label": "Service",
         "hide": 0,
@@ -59,7 +86,7 @@
         "includeAll": true,
         "query": {
           "qryType": 1,
-          "query": "label_values(traces_spanmetrics_calls_total, service_name)",
+          "query": "label_values(traces_spanmetrics_calls_total{cluster=~\"$cluster\"}, service_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "sort": 1
@@ -69,7 +96,7 @@
         "type": "adhocfilters",
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${metrics_datasource}"
         }
       }
     ]
@@ -102,7 +129,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -114,17 +141,17 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Profiles",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2Cservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -141,16 +168,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\"}[$__rate_interval]))",
-          "legendFormat": "{{service_name}}"
+          "expr": "label_replace(sum by (cluster, service_name) (rate(traces_spanmetrics_calls_total{cluster=~\"$cluster\", service_name=~\"$service\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}}"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -167,7 +194,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -183,17 +210,17 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Profiles",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2Cservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -210,16 +237,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
-          "legendFormat": "{{service_name}}"
+          "expr": "label_replace(sum by (cluster, service_name) (rate(traces_spanmetrics_calls_total{cluster=~\"$cluster\", service_name=~\"$service\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}}"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -236,7 +263,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -248,17 +275,17 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Profiles",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2Cservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -275,16 +302,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum by (service_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{service_name=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{service_name}} p99"
+          "expr": "label_replace(histogram_quantile(0.99, sum by (cluster, service_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{cluster=~\"$cluster\", service_name=~\"$service\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}} p99"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -301,7 +328,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -313,17 +340,17 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Profiles",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22pyroscope%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22pyroscope%22%2C%22type%22%3A%22grafana-pyroscope-datasource%22%7D%2C%22profileTypeId%22%3A%22process_cpu%3Acpu%3Ananoseconds%3Acpu%3Ananoseconds%22%2C%22labelSelector%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2Cservice_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -340,16 +367,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum by (service_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{service_name=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{service_name}} p50"
+          "expr": "label_replace(histogram_quantile(0.50, sum by (cluster, service_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{cluster=~\"$cluster\", service_name=~\"$service\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}} p50"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -366,7 +393,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -378,12 +405,12 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces for operation",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%26%26%20name%20%3D%20%5C%22${__field.labels.span_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%26%26%20name%20%3D%20%5C%22${__field.labels.span_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -400,16 +427,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (span_name, service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\"}[$__rate_interval]))",
-          "legendFormat": "{{service_name}}: {{span_name}}"
+          "expr": "label_replace(sum by (cluster, span_name, service_name) (rate(traces_spanmetrics_calls_total{cluster=~\"$cluster\", service_name=~\"$service\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}}: {{span_name}}"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -441,7 +468,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -453,12 +480,12 @@
           "links": [
             {
               "title": "Traces (client)",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.client}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.client}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces (server)",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.server}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.server}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -475,16 +502,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (client, server) (rate(traces_service_graph_request_total[$__rate_interval]))",
-          "legendFormat": "{{client}} \u2192 {{server}}"
+          "expr": "label_replace(sum by (cluster, client, server) (rate(traces_service_graph_request_total{cluster=~\"$cluster\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{client}} \u2192 {{server}}"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -501,7 +528,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -513,12 +540,12 @@
           "links": [
             {
               "title": "Traces (client)",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.client}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.client}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces (server)",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.server}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.server}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -535,16 +562,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum by (client, server, le) (rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "{{client}} \u2192 {{server}} p99"
+          "expr": "label_replace(histogram_quantile(0.99, sum by (cluster, client, server, le) (rate(traces_service_graph_request_server_seconds_bucket{cluster=~\"$cluster\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{client}} \u2192 {{server}} p99"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -576,7 +603,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -597,16 +624,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (cluster) (rate(tempo_distributor_traces_per_batch_count{cluster=~\"$cluster\"}[$__rate_interval]))",
-          "legendFormat": "traces/s"
+          "expr": "label_replace(sum by (cluster) (rate(tempo_distributor_traces_per_batch_count{cluster=~\"$cluster\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} traces/s"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -623,7 +650,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -644,16 +671,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (cluster) (rate(tempo_live_store_local_blocks_flushed_total{cluster=~\"$cluster\"}[$__rate_interval]))",
-          "legendFormat": "blocks/s"
+          "expr": "label_replace(sum by (cluster) (rate(tempo_live_store_local_blocks_flushed_total{cluster=~\"$cluster\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} blocks/s"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -670,7 +697,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -691,25 +718,25 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, cluster) (rate(tempo_query_frontend_queue_duration_seconds_bucket{cluster=~\"$cluster\"}[$__rate_interval])))",
-          "legendFormat": "p99"
+          "expr": "label_replace(histogram_quantile(0.99, sum by (le, cluster) (rate(tempo_query_frontend_queue_duration_seconds_bucket{cluster=~\"$cluster\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} p99"
         },
         {
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le, cluster) (rate(tempo_query_frontend_queue_duration_seconds_bucket{cluster=~\"$cluster\"}[$__rate_interval])))",
-          "legendFormat": "p50"
+          "expr": "label_replace(histogram_quantile(0.50, sum by (le, cluster) (rate(tempo_query_frontend_queue_duration_seconds_bucket{cluster=~\"$cluster\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} p50"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -741,7 +768,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -757,12 +784,12 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces for operation",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%26%26%20name%20%3D%20%5C%22${__field.labels.span_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%26%26%20name%20%3D%20%5C%22${__field.labels.span_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -779,16 +806,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "sum by (service_name, span_name) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
-          "legendFormat": "{{service_name}}: {{span_name}}"
+          "expr": "label_replace(sum by (cluster, service_name, span_name) (rate(traces_spanmetrics_calls_total{cluster=~\"$cluster\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}}: {{span_name}}"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]
@@ -805,7 +832,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -817,12 +844,12 @@
           "links": [
             {
               "title": "Logs",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22loki%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${logs_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${logs_datasource}%22%2C%22type%22%3A%22loki%22%7D%2C%22editorMode%22%3A%22code%22%2C%22expr%22%3A%22%7Bcluster%3D~%5C%22${cluster:regex}%5C%22%2C%20service_name%3D%5C%22${__field.labels.service_name}%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             },
             {
               "title": "Traces for operation",
-              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22tempo%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%26%26%20name%20%3D%20%5C%22${__field.labels.span_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
+              "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22${traces_datasource}%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22uid%22%3A%22${traces_datasource}%22%2C%22type%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22${__field.labels.service_name}%5C%22%20%26%26%20name%20%3D%20%5C%22${__field.labels.span_name}%5C%22%20%7D%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D",
               "targetBlank": true
             }
           ]
@@ -839,16 +866,16 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "histogram_quantile(0.99, sum by (service_name, span_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket[$__rate_interval])))",
-          "legendFormat": "{{service_name}}: {{span_name}}"
+          "expr": "label_replace(histogram_quantile(0.99, sum by (cluster, service_name, span_name, le) (rate(traces_spanmetrics_duration_milliseconds_bucket{cluster=~\"$cluster\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{service_name}}: {{span_name}}"
         }
       ],
       "links": [
         {
           "title": "System Overview",
-          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+          "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${traces_datasource:queryparam}&${cluster:queryparam}",
           "targetBlank": false
         }
       ]

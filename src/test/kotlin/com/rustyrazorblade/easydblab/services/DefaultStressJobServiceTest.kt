@@ -439,7 +439,10 @@ class DefaultStressJobServiceTest : BaseKoinTest() {
         assertThat(javaToolOptions).contains("-Dpyroscope.profiler.event=cpu")
         assertThat(javaToolOptions).contains("-Dpyroscope.profiler.alloc=512k")
         assertThat(javaToolOptions).contains("-Dpyroscope.profiler.lock=10ms")
-        assertThat(javaToolOptions).contains("-Dpyroscope.labels=cluster=test-cluster,job_name=stress-test-123")
+        // The cluster label is <name>-<id>, the value every other signal carries, so the profiling
+        // dashboards' cluster filter matches these profiles.
+        val cluster = getKoin().get<ClusterStateManager>().load().clusterLabelName()
+        assertThat(javaToolOptions).contains("-Dpyroscope.labels=cluster=$cluster,job_name=stress-test-123")
         assertThat(javaToolOptions).contains("-Dpyroscope.tenant.id=default")
     }
 
@@ -487,6 +490,16 @@ class DefaultStressJobServiceTest : BaseKoinTest() {
         // The cluster label is NOT set here. The collector's traces pipeline stamps it with
         // resource/cluster, so every span producer gets it rather than each carrying its own copy.
         assertThat(resourceAttributes).doesNotContain("cluster=")
+    }
+
+    @Test
+    fun `buildJob samples the stress JVM's traces at the fixed ratio`() {
+        val javaToolOptions = javaToolOptionsOf(stressJobConfig()).split(" ")
+
+        assertThat(javaToolOptions).contains(
+            "-Dotel.traces.sampler=parentbased_traceidratio",
+            "-Dotel.traces.sampler.arg=${Constants.Stress.TRACE_SAMPLE_RATIO}",
+        )
     }
 
     @Test

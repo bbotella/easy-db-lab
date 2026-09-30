@@ -8,10 +8,13 @@ import com.rustyrazorblade.easydblab.configuration.ClusterStateManager
 import com.rustyrazorblade.easydblab.configuration.InitConfig
 import com.rustyrazorblade.easydblab.configuration.ServerType
 import com.rustyrazorblade.easydblab.proxy.SocksProxyService
-import com.rustyrazorblade.easydblab.services.GrafanaDashboardService
+import com.rustyrazorblade.easydblab.services.DashboardInstallContextFactory
+import com.rustyrazorblade.easydblab.services.GrafanaClient
 import com.rustyrazorblade.easydblab.services.HelmService
 import com.rustyrazorblade.easydblab.services.KitHookExecutor
 import com.rustyrazorblade.easydblab.services.MetricsRegistryService
+import com.rustyrazorblade.easydblab.services.ObjectStore
+import com.rustyrazorblade.easydblab.services.TenantDirectory
 import com.rustyrazorblade.easydblab.services.WorkloadStepExecutor
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -25,7 +28,7 @@ import java.io.File
 
 class KitRunnerCommandFactoryTest : BaseKoinTest() {
     private val mockClusterStateManager: ClusterStateManager = mock()
-    private val mockGrafanaDashboardService: GrafanaDashboardService = mock()
+    private val mockGrafanaClient: GrafanaClient = mock()
     private val mockWorkloadStepExecutor: WorkloadStepExecutor = mock()
     private val mockMetricsRegistryService: MetricsRegistryService = mock()
     private val mockHelmService: HelmService = mock()
@@ -41,7 +44,8 @@ class KitRunnerCommandFactoryTest : BaseKoinTest() {
         listOf(
             module {
                 single<ClusterStateManager> { mockClusterStateManager }
-                single<GrafanaDashboardService> { mockGrafanaDashboardService }
+                single<GrafanaClient> { mockGrafanaClient }
+                single { DashboardInstallContextFactory(TenantDirectory(mock<ObjectStore>())) }
                 single<WorkloadStepExecutor> { mockWorkloadStepExecutor }
                 single<MetricsRegistryService> { mockMetricsRegistryService }
                 single<HelmService> { mockHelmService }
@@ -420,6 +424,31 @@ class KitRunnerCommandFactoryTest : BaseKoinTest() {
         val optionNames = perfCl.commandSpec.options().map { it.longestName() }
 
         assertThat(optionNames).contains("--num-records", "--throughput")
+    }
+
+    @Test
+    fun `a declared value arg shows a value placeholder in the command usage`() {
+        writeKitYaml(
+            """
+            name: kafka
+            commands:
+              producer-perf:
+                description: "Run producer perf test"
+                args:
+                  - flag: --num-records
+                    variable: NUM_RECORDS
+                    type: int
+                    default: "1000000"
+            start:
+              - type: shell
+                script: echo start
+            """.trimIndent(),
+        )
+        File(File(kitDir, "bin").also { it.mkdirs() }, "producer-perf.sh").writeText("#!/bin/sh\necho perf")
+
+        val perfCl = factory.buildKitGroup("kafka", kitDir).subcommands.getValue("producer-perf")
+
+        assertThat(perfCl.usageMessage).contains("--num-records=<num-records>")
     }
 
     @Test

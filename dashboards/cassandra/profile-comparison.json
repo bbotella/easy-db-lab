@@ -16,16 +16,16 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "${metrics_datasource}"
         },
         "enable": true,
-        "expr": "resets(jvm_cpu_time_seconds_total{job=\"cassandra\"}[$__interval]) > 0",
+        "expr": "label_replace(resets(jvm_cpu_time_seconds_total{cluster=~\"$cluster\", job=\"cassandra\"}[$__interval]) > 0, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
         "hide": false,
         "iconColor": "red",
         "name": "Database restart",
         "step": "60s",
         "tagKeys": "host_name,cassandra_build",
-        "textFormat": "{{host_name}} restarted on build {{cassandra_build}}",
+        "textFormat": "{{cluster_name}} {{host_name}} restarted on build {{cassandra_build}}",
         "titleFormat": "Database restart",
         "useValueForTime": false
       }
@@ -210,7 +210,7 @@
             "hostname",
             "cluster"
           ],
-          "labelSelector": "{service_name=\"${service}\",${compare_by}=\"${side_a}\"}",
+          "labelSelector": "{cluster=~\"${cluster:regex}\",service_name=\"${service}\",${compare_by}=\"${side_a}\"}",
           "profileTypeId": "${profile_type}",
           "queryType": "metrics",
           "refId": "A"
@@ -224,7 +224,7 @@
             "hostname",
             "cluster"
           ],
-          "labelSelector": "{service_name=\"${service}\",${compare_by}=\"${side_b}\"}",
+          "labelSelector": "{cluster=~\"${cluster:regex}\",service_name=\"${service}\",${compare_by}=\"${side_b}\"}",
           "profileTypeId": "${profile_type}",
           "queryType": "metrics",
           "refId": "B"
@@ -260,7 +260,7 @@
             "uid": "pyroscope"
           },
           "groupBy": [],
-          "labelSelector": "{service_name=\"${service}\",${compare_by}=\"${side_a}\"}",
+          "labelSelector": "{cluster=~\"${cluster:regex}\",service_name=\"${service}\",${compare_by}=\"${side_a}\"}",
           "profileTypeId": "${profile_type}",
           "queryType": "profile",
           "refId": "A"
@@ -296,7 +296,7 @@
             "uid": "pyroscope"
           },
           "groupBy": [],
-          "labelSelector": "{service_name=\"${service}\",${compare_by}=\"${side_b}\"}",
+          "labelSelector": "{cluster=~\"${cluster:regex}\",service_name=\"${service}\",${compare_by}=\"${side_b}\"}",
           "profileTypeId": "${profile_type}",
           "queryType": "profile",
           "refId": "A"
@@ -317,6 +317,47 @@
   ],
   "templating": {
     "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metrics",
+        "multi": false,
+        "name": "metrics_datasource",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "allValue": ".+",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${metrics_datasource}"
+        },
+        "definition": "label_values(up, cluster)",
+        "description": "The clusters this dashboard shows. Clusters of one tenant share one store, so every query filters by this variable.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Cluster",
+        "multi": true,
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up, cluster)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
       {
         "current": {
           "selected": true,
@@ -410,7 +451,7 @@
           "type": "grafana-pyroscope-datasource",
           "uid": "pyroscope"
         },
-        "definition": "label_values(service_name)",
+        "definition": "label_values({cluster=~\"${cluster:regex}\"}, service_name)",
         "description": "The profiled process. Every panel filters on it, so both sides always describe the same program.",
         "hide": 0,
         "includeAll": false,
@@ -420,7 +461,7 @@
         "options": [],
         "query": {
           "labelName": "service_name",
-          "profileTypeId": "${profile_type}",
+          "profileTypeId": "${profile_type}\",cluster=~\"${cluster:regex}",
           "refId": "PyroscopeVariableQueryEditor-VariableQuery",
           "type": "labelValue"
         },
@@ -436,7 +477,7 @@
           "type": "grafana-pyroscope-datasource",
           "uid": "pyroscope"
         },
-        "definition": "label_values(${compare_by})",
+        "definition": "label_values({cluster=~\"${cluster:regex}\",service_name=\"${service}\"}, ${compare_by})",
         "description": "The left-hand subject. The list is every value of the chosen axis that reported a profile for the selected service.",
         "hide": 0,
         "includeAll": false,
@@ -446,8 +487,7 @@
         "options": [],
         "query": {
           "labelName": "${compare_by}",
-          "labelSelector": "{service_name=\"${service}\"}",
-          "profileTypeId": "${profile_type}",
+          "profileTypeId": "${profile_type}\",cluster=~\"${cluster:regex}\",service_name=\"${service}",
           "refId": "PyroscopeVariableQueryEditor-VariableQuery",
           "type": "labelValue"
         },
@@ -463,7 +503,7 @@
           "type": "grafana-pyroscope-datasource",
           "uid": "pyroscope"
         },
-        "definition": "label_values(${compare_by})",
+        "definition": "label_values({cluster=~\"${cluster:regex}\",service_name=\"${service}\"}, ${compare_by})",
         "description": "The right-hand subject. Pick a different value from Side A, or the page compares a subject against itself.",
         "hide": 0,
         "includeAll": false,
@@ -473,8 +513,7 @@
         "options": [],
         "query": {
           "labelName": "${compare_by}",
-          "labelSelector": "{service_name=\"${service}\"}",
-          "profileTypeId": "${profile_type}",
+          "profileTypeId": "${profile_type}\",cluster=~\"${cluster:regex}\",service_name=\"${service}",
           "refId": "PyroscopeVariableQueryEditor-VariableQuery",
           "type": "labelValue"
         },

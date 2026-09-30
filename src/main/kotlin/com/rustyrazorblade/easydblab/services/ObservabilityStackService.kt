@@ -74,7 +74,7 @@ class DefaultObservabilityStackService(
     private val clusterStateManager: ClusterStateManager,
     private val user: User,
     private val eventBus: EventBus,
-    private val dashboardService: GrafanaDashboardService,
+    private val grafanaDeployService: GrafanaDeployService,
     private val otelManifestBuilder: OtelManifestBuilder,
     private val journaldOtelManifestBuilder: JournaldOtelManifestBuilder,
     private val ebpfExporterManifestBuilder: EbpfExporterManifestBuilder,
@@ -88,7 +88,7 @@ class DefaultObservabilityStackService(
     private val yaceManifestBuilder: YaceManifestBuilder,
     private val kubeStateMetricsManifestBuilder: KubeStateMetricsManifestBuilder,
     private val configChangeReport: ConfigChangeReport,
-    private val tenantDirectory: TenantDirectory,
+    private val installContextFactory: DashboardInstallContextFactory,
 ) : ObservabilityStackService {
     companion object {
         private const val DEFAULT_NAMESPACE = "default"
@@ -157,7 +157,7 @@ class DefaultObservabilityStackService(
                 uploadDashboards(controlNode, clusterState)
             }
 
-            // Grafana is applied by the dashboard service, not a stage, and rolls on a datasource change.
+            // Grafana is applied by the Grafana deploy service, not a stage, and rolls on a datasource change.
             val grafana =
                 when (telemetryRedirect) {
                     null -> listOf(WorkloadRef(WorkloadKind.Deployment, GrafanaManifestBuilder.DEPLOYMENT_NAME))
@@ -211,15 +211,19 @@ class DefaultObservabilityStackService(
             }
         }
 
-    /** Uploads the dashboards with a datasource for every tenant in the shared store, so each deploy picks up new ones. */
+    /**
+     * Deploys Grafana with a datasource for every tenant in the shared store, so each deploy picks up
+     * new ones, and the dashboards with the install-time pass for this cluster.
+     */
     private fun uploadDashboards(
         controlNode: ClusterHost,
         clusterState: ClusterState,
     ) {
-        val tenants = tenantDirectory.list(ObservabilityStore.from(clusterState).bucket, clusterState.tenant())
-        dashboardService.uploadDashboards(controlNode, tenants).getOrElse { exception ->
-            error("Failed to upload dashboards: ${exception.message}")
-        }
+        grafanaDeployService
+            .deploy(controlNode, installContextFactory.forCluster(clusterState, controlNode), ObservabilityStore.from(clusterState).bucket)
+            .getOrElse { exception ->
+                error("Failed to upload dashboards: ${exception.message}")
+            }
     }
 
     private fun applyStage(

@@ -18,13 +18,14 @@ import com.rustyrazorblade.easydblab.providers.aws.SecurityGroupDetails
 import com.rustyrazorblade.easydblab.providers.aws.SecurityGroupRuleInfo
 import com.rustyrazorblade.easydblab.providers.aws.VpcService
 import com.rustyrazorblade.easydblab.services.K3sService
-import com.rustyrazorblade.easydblab.services.K8sService
 import com.rustyrazorblade.easydblab.services.StressJobService
+import com.rustyrazorblade.easydblab.services.WorkspaceKitScanner
 import com.rustyrazorblade.easydblab.services.aws.EC2InstanceService
 import com.rustyrazorblade.easydblab.services.aws.EMRService
 import com.rustyrazorblade.easydblab.services.aws.OpenSearchService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.assertj.core.api.Assertions.assertThat
@@ -46,7 +47,6 @@ class StatusCacheTest : BaseKoinTest() {
     private lateinit var mockEc2InstanceService: EC2InstanceService
     private lateinit var mockVpcService: VpcService
     private lateinit var mockK3sService: K3sService
-    private lateinit var mockK8sService: K8sService
     private lateinit var mockEmrService: EMRService
     private lateinit var mockOpenSearchService: OpenSearchService
     private lateinit var mockStressJobService: StressJobService
@@ -103,10 +103,10 @@ class StatusCacheTest : BaseKoinTest() {
                 single { mockEc2InstanceService }
                 single<VpcService> { mockVpcService }
                 factory<K3sService> { mockK3sService }
-                factory<K8sService> { mockK8sService }
                 single { mockEmrService }
                 single { mockOpenSearchService }
                 single<StressJobService> { mockStressJobService }
+                single { WorkspaceKitScanner(get()) }
             },
         )
 
@@ -116,7 +116,6 @@ class StatusCacheTest : BaseKoinTest() {
         mockEc2InstanceService = mock()
         mockVpcService = mock()
         mockK3sService = mock()
-        mockK8sService = mock()
         mockEmrService = mock()
         mockOpenSearchService = mock()
         mockStressJobService = mock()
@@ -444,7 +443,6 @@ class StatusCacheTest : BaseKoinTest() {
     fun `accessInfo observability names every backend on the control node`() {
         File(context.workingDirectory, Constants.K3s.LOCAL_KUBECONFIG).writeText("")
         whenever(mockK3sService.listPods(any(), any())).thenReturn(Result.success(emptyList()))
-        whenever(mockK8sService.getNamespaceStatus(any(), any())).thenReturn(Result.success("No resources found"))
         statusCache = StatusCache(refreshIntervalSeconds = 3600)
         statusCache.forceRefresh()
 
@@ -459,6 +457,67 @@ class StatusCacheTest : BaseKoinTest() {
         assertThat(observability["loki"]?.jsonPrimitive?.content).isEqualTo("http://10.0.1.200:3100")
         assertThat(observability["tempo"]?.jsonPrimitive?.content).isEqualTo("http://10.0.1.200:3200")
         assertThat(observability["pyroscope"]?.jsonPrimitive?.content).isEqualTo("http://10.0.1.200:4040")
+    }
+
+    @Test
+    fun `accessInfo lists a running kit's declared NodePort endpoints`() {
+        File(context.workingDirectory, Constants.K3s.LOCAL_KUBECONFIG).writeText("")
+        whenever(mockK3sService.listPods(any(), any())).thenReturn(Result.success(emptyList()))
+        whenever(mockClusterStateManager.load()).thenReturn(testClusterState.copy(runningKits = setOf("clickhouse")))
+        installPackagedKit("clickhouse")
+        statusCache = StatusCache(refreshIntervalSeconds = 3600)
+        statusCache.forceRefresh()
+
+        val accessInfo = statusCache.getStatus("accessInfo")!!
+
+        assertThat(accessInfo).contains("\"clickhouse\"", "http://10.0.1.100:30123", "10.0.1.100:30900")
+        assertThat(accessInfo).doesNotContain(":8123", ":9000")
+    }
+
+    @Test
+    fun `a stopped kit prints no endpoints`() {
+        File(context.workingDirectory, Constants.K3s.LOCAL_KUBECONFIG).writeText("")
+        whenever(mockK3sService.listPods(any(), any())).thenReturn(Result.success(emptyList()))
+        installPackagedKit("clickhouse")
+        statusCache = StatusCache(refreshIntervalSeconds = 3600)
+        statusCache.forceRefresh()
+
+        val accessInfo = statusCache.getStatus("accessInfo")!!
+
+        assertThat(accessInfo).doesNotContain("30123", "8123", "playUi")
+    }
+
+    @Test
+    fun `accessInfo says why a running kit with an unreadable kit descriptor has no endpoints`() {
+        File(context.workingDirectory, Constants.K3s.LOCAL_KUBECONFIG).writeText("")
+        whenever(mockK3sService.listPods(any(), any())).thenReturn(Result.success(emptyList()))
+        whenever(mockClusterStateManager.load()).thenReturn(testClusterState.copy(runningKits = setOf("broken", "clickhouse")))
+        installPackagedKit("clickhouse")
+        File(context.workingDirectory, "broken").mkdirs()
+        File(File(context.workingDirectory, "broken"), Constants.Kit.CONFIG_FILE).writeText("name: [broken\nendpoints: {")
+        statusCache = StatusCache(refreshIntervalSeconds = 3600)
+        statusCache.forceRefresh()
+
+        val kits =
+            Json
+                .parseToJsonElement(statusCache.getStatus("accessInfo")!!)
+                .jsonObject["kits"]!!
+                .jsonArray
+                .associateBy { it.jsonObject["name"]!!.jsonPrimitive.content }
+
+        assertThat(kits["broken"]!!.jsonObject["endpointsUnavailable"]?.jsonPrimitive?.content)
+            .isEqualTo("cannot read ${Constants.Kit.CONFIG_FILE}")
+        assertThat(kits["clickhouse"]!!.jsonObject["endpointsUnavailable"]).isNull()
+        assertThat(kits["clickhouse"]!!.jsonObject["endpoints"]!!.jsonArray).isNotEmpty()
+    }
+
+    private fun installPackagedKit(name: String) {
+        val kitYaml =
+            checkNotNull(javaClass.getResource("/com/rustyrazorblade/easydblab/kits/$name/${Constants.Kit.CONFIG_FILE}")) {
+                "packaged kit $name not found"
+            }.readText()
+        File(context.workingDirectory, name).mkdirs()
+        File(File(context.workingDirectory, name), Constants.Kit.CONFIG_FILE).writeText(kitYaml)
     }
 
     @Test

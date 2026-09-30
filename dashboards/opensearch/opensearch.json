@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -76,8 +76,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "ClusterStatus.green"
+              "id": "byRegexp",
+              "options": "^(.* )?ClusterStatus\\.green$"
             },
             "properties": [
               {
@@ -91,8 +91,8 @@
           },
           {
             "matcher": {
-              "id": "byName",
-              "options": "ClusterStatus.yellow"
+              "id": "byRegexp",
+              "options": "^(.* )?ClusterStatus\\.yellow$"
             },
             "properties": [
               {
@@ -106,8 +106,8 @@
           },
           {
             "matcher": {
-              "id": "byName",
-              "options": "ClusterStatus.red"
+              "id": "byRegexp",
+              "options": "^(.* )?ClusterStatus\\.red$"
             },
             "properties": [
               {
@@ -146,28 +146,28 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_cluster_status_green_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "ClusterStatus.green",
+          "expr": "label_replace(aws_es_cluster_status_green_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} ClusterStatus.green",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_cluster_status_yellow_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "ClusterStatus.yellow",
+          "expr": "label_replace(aws_es_cluster_status_yellow_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} ClusterStatus.yellow",
           "refId": "B"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_cluster_status_red_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "ClusterStatus.red",
+          "expr": "label_replace(aws_es_cluster_status_red_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} ClusterStatus.red",
           "refId": "C"
         }
       ],
@@ -177,7 +177,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -254,10 +254,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_free_storage_space_minimum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "FreeStorageSpace",
+          "expr": "label_replace(aws_es_free_storage_space_minimum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} FreeStorageSpace",
           "refId": "A"
         }
       ],
@@ -279,7 +279,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -356,10 +356,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_cpuutilization_average{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "CPUUtilization",
+          "expr": "label_replace(aws_es_cpuutilization_average{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} CPUUtilization",
           "refId": "A"
         }
       ],
@@ -369,7 +369,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -446,10 +446,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_jvmmemory_pressure_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "JVMMemoryPressure",
+          "expr": "label_replace(aws_es_jvmmemory_pressure_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} JVMMemoryPressure",
           "refId": "A"
         }
       ],
@@ -471,7 +471,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -548,10 +548,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_search_latency_p99{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "SearchLatency p99",
+          "expr": "label_replace(aws_es_search_latency_p99{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} SearchLatency p99",
           "refId": "A"
         }
       ],
@@ -561,7 +561,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -638,10 +638,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_search_rate_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "SearchRate",
+          "expr": "label_replace(aws_es_search_rate_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} SearchRate",
           "refId": "A"
         }
       ],
@@ -663,7 +663,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -740,10 +740,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_indexing_latency_p99{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "IndexingLatency p99",
+          "expr": "label_replace(aws_es_indexing_latency_p99{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} IndexingLatency p99",
           "refId": "A"
         }
       ],
@@ -753,7 +753,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -830,10 +830,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_indexing_rate_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "IndexingRate",
+          "expr": "label_replace(aws_es_indexing_rate_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} IndexingRate",
           "refId": "A"
         }
       ],
@@ -855,7 +855,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -907,8 +907,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "2xx"
+              "id": "byRegexp",
+              "options": "^(.* )?2xx$"
             },
             "properties": [
               {
@@ -922,8 +922,8 @@
           },
           {
             "matcher": {
-              "id": "byName",
-              "options": "4xx"
+              "id": "byRegexp",
+              "options": "^(.* )?4xx$"
             },
             "properties": [
               {
@@ -937,8 +937,8 @@
           },
           {
             "matcher": {
-              "id": "byName",
-              "options": "5xx"
+              "id": "byRegexp",
+              "options": "^(.* )?5xx$"
             },
             "properties": [
               {
@@ -978,37 +978,37 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_2xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "2xx",
+          "expr": "label_replace(aws_es_2xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} 2xx",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_3xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "3xx",
+          "expr": "label_replace(aws_es_3xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} 3xx",
           "refId": "B"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_4xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "4xx",
+          "expr": "label_replace(aws_es_4xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} 4xx",
           "refId": "C"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_5xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "5xx",
+          "expr": "label_replace(aws_es_5xx_sum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} 5xx",
           "refId": "D"
         }
       ],
@@ -1030,7 +1030,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1107,10 +1107,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
-          "expr": "aws_es_cluster_used_space_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}",
-          "legendFormat": "ClusterUsedSpace",
+          "expr": "label_replace(aws_es_cluster_used_space_maximum{dimension_DomainName=\"$domain\", cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} ClusterUsedSpace",
           "refId": "A"
         }
       ],
@@ -1118,7 +1118,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "5m",
+  "refresh": "",
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
@@ -1130,9 +1130,24 @@
     "list": [
       {
         "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metrics",
+        "multi": false,
+        "name": "metrics_datasource",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${metrics_datasource}"
         },
         "definition": "label_values(up, cluster)",
         "hide": 0,
@@ -1148,7 +1163,7 @@
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
-        "regex": "",
+        "regex": "/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
@@ -1157,16 +1172,16 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "${metrics_datasource}"
         },
-        "definition": "label_values(aws_es_cluster_status_green_maximum, dimension_DomainName)",
+        "definition": "label_values(aws_es_cluster_status_green_maximum{cluster=~\"$cluster\"}, dimension_DomainName)",
         "hide": 0,
         "includeAll": false,
         "label": "Domain",
         "multi": false,
         "name": "domain",
         "options": [],
-        "query": "label_values(aws_es_cluster_status_green_maximum, dimension_DomainName)",
+        "query": "label_values(aws_es_cluster_status_green_maximum{cluster=~\"$cluster\"}, dimension_DomainName)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1176,7 +1191,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "${metrics_datasource}"
         },
         "filters": [],
         "hide": 0,

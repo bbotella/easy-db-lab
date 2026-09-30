@@ -57,6 +57,9 @@ class CollectorToBackendsIntegrationTest : BaseKoinTest() {
         val POLL: Duration = Duration.ofSeconds(2)
         const val LOG_LINES = 20
         const val COMPONENT_ID_LENGTH = 30
+        const val CONTROL_HOST = "control0"
+        const val EMR_HOST = "ip-10-0-0-5"
+        const val STEP_STDERR_LINE = "Exception in thread \"main\" java.lang.NoSuchMethodError: e2e"
     }
 
     private val s3 = SharedLocalStack.s3Client()
@@ -133,6 +136,7 @@ class CollectorToBackendsIntegrationTest : BaseKoinTest() {
             .withCopyToContainer(Transferable.of(""), "${OtelManifestBuilder.HOST_ROOT_MOUNT_PATH}/.keep")
             .withCopyToContainer(Transferable.of("placeholder"), "$SA_DIR/token")
             .withCopyToContainer(Transferable.of("default"), "$SA_DIR/namespace")
+            .withCreateContainerCmdModifier { it.withHostName(CONTROL_HOST) }
             .withEnv("HOSTNAME", "node0")
             .withEnv("CLUSTER_NAME", CLUSTER)
             .withEnv("TENANT", TENANT)
@@ -155,6 +159,8 @@ class CollectorToBackendsIntegrationTest : BaseKoinTest() {
                 .replace("__CONTROL_NODE_IP__", bridgeAddress(control))
                 .replace("__NODE_ROLE__", "spark-master")
         return GenericContainer("otel/opentelemetry-collector-contrib:${Constants.OtelCollector.VERSION}")
+            .withCreateContainerCmdModifier { it.withHostName(EMR_HOST) }
+            .withCopyToContainer(Transferable.of("$STEP_STDERR_LINE\n"), "/mnt/var/log/hadoop/steps/s-E2E/stderr")
             .withCopyToContainer(Transferable.of(config), "/etc/otel-collector-config.yaml")
             .withCommand("--config=/etc/otel-collector-config.yaml")
             .withExposedPorts(Constants.K8s.OTEL_HTTP_PORT, Constants.K8s.OTEL_HEALTH_PORT)
@@ -260,6 +266,19 @@ class CollectorToBackendsIntegrationTest : BaseKoinTest() {
             }
         assertThat(labelsOf(series, "metric")).containsEntry("cluster", CLUSTER)
 
+        // The collector's own scrape rides metrics/local, as host metrics do; its host is control0.
+        val local =
+            await(collector) {
+                results(
+                    ObservabilityBackends
+                        .get(
+                            "$mimirUrl/prometheus/api/v1/query?query=otelcol_process_runtime_alloc_bytes_total",
+                            TENANT,
+                        ).body(),
+                ).firstOrNull()
+            }
+        assertThat(labelsOf(local, "metric")).containsEntry("host_name", CONTROL_HOST).containsEntry("node_role", "control")
+
         val lokiUrl = ObservabilityBackends.baseUrl(loki, Constants.K8s.LOKI_HTTP_PORT)
         val query = URLEncoder.encode("{cluster=\"$CLUSTER\"}", Charsets.UTF_8)
         val stream =
@@ -273,13 +292,35 @@ class CollectorToBackendsIntegrationTest : BaseKoinTest() {
         assertThat(results(ObservabilityBackends.get("$mimirUrl/prometheus/api/v1/query?query=edl_e2e_probe", "other").body())).isEmpty()
     }
 
+    /**
+     * One topology (Mimir, Loki, the cluster's collector and an EMR node's collector) serves every
+     * EMR check, since starting it is most of the test's cost.
+     *
+     * - A Spark job's line sent to the EMR collector is found by the queries `spark logs` and `logs
+     *   query --source emr` send.
+     * - A line EMR writes to a step's stderr file on the node reaches Loki with the EMR source, the
+     *   node's role and host, and the cluster, so a driver that dies before its Java agent exports
+     *   anything still leaves its exception where `logs query --source emr` finds it.
+     * - An EMR node's metrics keep the EMR node's host name through the cluster's collector, while
+     *   an OTLP producer on a cluster node (a JVM in a pod reports its pod name) is still stamped
+     *   with the node's. Before, every Spark master and worker arrived as `host_name="control0"`,
+     *   collided with the real control node and failed System Overview's Filesystem Usage with
+     *   "found duplicate series".
+     */
     @Test
-    fun `a Spark job's line from an EMR node is found by spark logs and by logs query for the emr source`() {
+    fun `an EMR node's Spark lines, step log files and metrics reach the cluster's backends`() {
         val (mimir, loki) = startBackends()
         val control = startCollector(mimir, loki)
         val emr = startEmrCollector(control)
         val nanos = System.currentTimeMillis() * 1_000_000
 
+        fun probe(
+            name: String,
+            hostName: String,
+        ) = """
+            {"resourceMetrics":[{"resource":{"attributes":[{"key":"host.name","value":{"stringValue":"$hostName"}}]},
+             "scopeMetrics":[{"metrics":[{"name":"$name","gauge":{"dataPoints":[{"asDouble":1,"timeUnixNano":"$nanos"}]}}]}]}]}
+            """.trimIndent()
         post(
             emr,
             "/v1/logs",
@@ -288,10 +329,34 @@ class CollectorToBackendsIntegrationTest : BaseKoinTest() {
              "scopeLogs":[{"logRecords":[{"timeUnixNano":"$nanos","body":{"stringValue":"Job 0 finished"}}]}]}]}
             """.trimIndent(),
         )
+        post(emr, "/v1/metrics", probe("edl_emr_host_probe", "set-by-the-spark-jvm"))
+        post(control, "/v1/metrics", probe("edl_pod_host_probe", "stress-pod-7d9f"))
 
+        // The Spark job's line.
         val step = await(control) { lokiStreams(loki, LogQl.sparkStep(CLUSTER, "BulkWriter")).firstOrNull() }
         assertThat(labelsOf(step, "stream")).containsEntry("cluster", CLUSTER).containsEntry("source", "emr")
         assertThat(lokiStreams(loki, LogQl.logsQuery(CLUSTER, source = "emr"))).isNotEmpty()
         assertThat(lokiStreams(loki, LogQl.sparkStep(CLUSTER, "OtherJob"))).isEmpty()
+
+        // The step's stderr file.
+        val stderr = await(control) { lokiStreams(loki, "{cluster=\"$CLUSTER\", source=\"emr\"} |= \"NoSuchMethodError\"").firstOrNull() }
+        assertThat(labelsOf(stderr, "stream"))
+            .containsEntry("node_role", "spark-master")
+            .containsEntry("host_name", EMR_HOST)
+            .containsEntry("log_file_path", "/mnt/var/log/hadoop/steps/s-E2E/stderr")
+
+        // The host names of the metrics.
+        val mimirUrl = ObservabilityBackends.baseUrl(mimir, Constants.K8s.MIMIR_HTTP_PORT)
+
+        fun series(name: String) =
+            await(control) {
+                results(ObservabilityBackends.get("$mimirUrl/prometheus/api/v1/query?query=$name", TENANT).body()).firstOrNull()
+            }
+        assertThat(labelsOf(series("edl_emr_host_probe"), "metric"))
+            .containsEntry("host_name", EMR_HOST)
+            .containsEntry("node_role", "spark-master")
+            .containsEntry("cluster", CLUSTER)
+            .doesNotContainKey("easydblab_emr_host_name")
+        assertThat(labelsOf(series("edl_pod_host_probe"), "metric")).containsEntry("host_name", CONTROL_HOST)
     }
 }

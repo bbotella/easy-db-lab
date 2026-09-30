@@ -15,7 +15,7 @@ Each subdirectory is a Grafana folder, and the folder's name is the directory na
 There is no registry. This section is the canonical description of how the tree reaches Grafana; other docs link here rather than restate it.
 
 1. **Discovery** — `GrafanaDashboardCatalog.discover()` (`src/main/kotlin/.../configuration/grafana/`) scans the classpath under `dashboards/` with ClassGraph and yields one `GrafanaDashboard(folder, jsonFileName)` per `<folder>/<name>.json`, sorted. A JSON file at the root of the tree or nested deeper is an error, not skipped. The home dashboard is pinned to exactly `infrastructure/system-overview.json` (`Constants.Grafana.HOME_DASHBOARD_PATH`); the catalog refuses to exist without it, and a `system-overview.json` in another folder is an ordinary dashboard. The catalog also knows the classpath base the JSON is read from (`resourcePathOf`); a `GrafanaDashboard` is only `(folder, jsonFileName)`.
-2. **Local tree** — `GrafanaDashboardTreeWriter` writes the catalog to a temp directory as `<folder>/<file>.json`, copying each JSON from the classpath with exactly one substitution, applied to every file: `__PYROSCOPE_URL__` becomes the control node's Pyroscope URL (`pyroscopeIngestBaseUrl`). Today only `observability/profiling.json` carries it; a file without it is written byte-for-byte. No `TemplateService`: dashboards carry Grafana built-ins like `$__rate_interval` that general substitution corrupts.
+2. **Local tree** — `GrafanaDashboardTreeWriter` writes the catalog to a temp directory as `<folder>/<file>.json`. It reads each JSON from the classpath, replaces `__PYROSCOPE_URL__` with the control node's Pyroscope URL (`pyroscopeIngestBaseUrl`; only `observability/profiling.json` carries it), and applies the install-time pass, `DashboardDefaults` (see [Install-time defaults](#install-time-defaults)). The result is written as compact JSON with every number as written. No `TemplateService`: dashboards carry Grafana built-ins like `$__rate_interval` that general substitution corrupts.
 3. **Upload and swap** — `GrafanaDashboardTreeUploader` (`src/main/kotlin/.../services/`) hands the local tree to `RemoteOperationsService.replaceDirectory(host, localDir, "/mnt/db1/grafana/dashboards", "472:472")`. That method creates a staging directory beside the target with `sudo mktemp -d -p /mnt/db1/grafana` (same filesystem, chowned to the SSH user so SFTP can write, in one remote command), uploads the tree into it, then in one remote command renames the old tree to `dashboards.old`, renames the staged tree in, `chown -R`s it to the owner, and removes `.old`. Grafana's provider therefore never polls an empty or partial directory, and a dashboard deleted from the repo disappears because the whole tree is replaced. If anything fails before the swap the staging directory is removed. No dashboard is a K8s object and nothing is deleted from K8s.
 4. **Provisioning** — `GrafanaDashboardProvisioningConfig` emits one file provider with `options.path: /var/lib/grafana/dashboards` (the hostPath as the Deployment mounts it) and `foldersFromFilesStructure: true`, so each directory becomes a Grafana folder of the same title. `GrafanaManifestBuilder` ships that YAML in the `grafana-dashboards-config` ConfigMap and points `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH` at `/var/lib/grafana/dashboards/` + `Constants.Grafana.HOME_DASHBOARD_PATH`; it does not take the catalog and nothing it builds varies with the tree's contents.
 
@@ -30,18 +30,164 @@ So:
 
 Dashboards that belong to a kit go in the kit's own `dashboards/` directory under `src/main/resources/.../kits/<name>/`, not here.
 
-## Datasource UIDs
+## Datasources and the tenant pickers
 
-| Datasource | UID         | Type                           |
-|------------|-------------|--------------------------------|
-| Mimir      | `mimir`     | `prometheus`                   |
-| Loki       | `loki`      | `loki`                         |
-| Tempo      | `tempo`     | `tempo`                        |
-| Pyroscope  | `pyroscope` | `grafana-pyroscope-datasource` |
+Grafana has a datasource per tenant for metrics, logs and traces, plus one for all tenants
+(`GrafanaDatasourceSet`). The stable uids read the cluster's own tenant:
 
-The uids are constants (`Constants.Grafana.DatasourceUid`), and `DashboardDatasourceTest` fails when
-a dashboard names any other datasource. Every datasource sends the cluster's tenant in
-`X-Scope-OrgID`.
+| Datasource | Stable UID  | Type                           | Picker               |
+|------------|-------------|--------------------------------|----------------------|
+| Mimir      | `mimir`     | `prometheus`                   | `metrics_datasource` |
+| Loki       | `loki`      | `loki`                         | `logs_datasource`    |
+| Tempo      | `tempo`     | `tempo`                        | `traces_datasource`  |
+| Pyroscope  | `pyroscope` | `grafana-pyroscope-datasource` | none                 |
+
+A dashboard names `mimir`, `loki` and `tempo` only through its pickers, so an operator can switch it
+to another tenant. The rules:
+
+- Declare one `type: datasource` variable for each signal the dashboard uses: `metrics_datasource`
+  (label "Metrics", `query: prometheus`), `logs_datasource` ("Logs", `loki`), `traces_datasource`
+  ("Traces", `tempo`). A second picker of one type, such as ClickHouse's `KeeperDatasource`, is
+  allowed. Profiles have one datasource only, so there is no Pyroscope picker; `pyroscope` stays a
+  fixed uid.
+- Every datasource reference names the picker and keeps its `type`:
+  `{"type": "prometheus", "uid": "${metrics_datasource}"}`. That covers panels, targets, variable
+  queries (the `cluster` variable included), ad hoc filters, annotation queries, and the uids inside
+  Explore links (left unencoded in the `panes=` JSON, like any other Grafana variable).
+- Leave every picker's `current` empty (`{}`). The install-time pass sets it.
+
+`DashboardDatasourceVariablesTest` enforces all three rules on every core and kit dashboard: no
+`uid` or string `datasource` equal to `mimir`, `loki` or `tempo` anywhere (Explore links are
+URL-decoded first), a picker for each used type, and the link rule below. It names the file and the
+JSON path. `DashboardDatasourceTest` still fails when a dashboard names a datasource Grafana does not
+have.
+
+### Links carry the pickers and the selected clusters
+
+Every `/d/` link (dashboard link or data link) passes each of `metrics_datasource`,
+`logs_datasource`, `traces_datasource`, `cluster`, `baseline_cluster`, `candidate_cluster`,
+`doc_tenant` and `role` that its own dashboard declares, as `${name:queryparam}` or as an explicit
+`var-<name>=value`, and passes no `${name:queryparam}` for a variable it does not declare. So a
+drill-down keeps the tenant and the cluster:
+
+```
+/d/system-overview/system-overview?from=${__from}&to=${__to}&${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${cluster:queryparam}
+```
+
+Every `/d/` link also keeps the time range: `from=${__from}&to=${__to}` in its URL, `${__url_time_range}`, or `keepTime`. Links into Tests and the comparison dashboards are the exception, because those open on their own relative ranges. `DashboardLinkTimeTest` checks this for core and kit dashboards.
+
+### The cluster variable
+
+Every `cluster` variable lists the clusters of the tenant the Metrics picker selects with `label_values(up, cluster)` on `${metrics_datasource}`, except the Tests dashboard's, which lists them over `lookback` (see [The Tests dashboard](#the-tests-dashboard)).  It is multi-select and includes "All".  So every query that reads `$cluster` matches it with `=~`, never `=`: `cluster=~"$cluster"`.  The Tests dashboard is the one exception: its `cluster` is single-select, because it picks one test.  `ClusterVariableTest` (`configuration/grafana/`) checks these rules for every dashboard file.
+
+Every dashboard that queries metrics, logs or profiles declares `cluster`, and every selector of every metrics, logs and profile query filters by it: panel targets, annotation queries, Explore links, and the queries of other variables (`label_values(system_cpu_logical_count{cluster=~"$cluster"}, host_name)`).  A Pyroscope query's selector is its `labelSelector`.  A Pyroscope variable is different: the plugin's `VariableSupport` lists values over `{__profile_type__="<profileTypeId>"}` and never reads a `labelSelector` on a variable, so the variable's matchers are written into its `profileTypeId`, which closes the plugin's quote and leaves the last one open: `"profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds\",cluster=~\"${cluster:regex}"`.  Its `definition` shows the resulting selector.  The Pyroscope plugin interpolates its queries with Grafana's default format, which writes two selected clusters as the glob `{a,b}` and matches nothing, so every Pyroscope regex matcher on a variable, in a `labelSelector` or a `profileTypeId`, reads it as `${name:regex}`: `cluster=~"${cluster:regex}"`, `hostname=~"${hostname:regex}"`.  A dashboard that queries only profiles still declares the `metrics_datasource` picker, because the `cluster` variable reads it.  Clusters of one tenant share Mimir's, Loki's and Pyroscope's store, so a selector without the filter mixes every cluster that ran at the same time.  Each side of a binary expression needs its own filter, because `a{cluster=~"$cluster"} / b` still divides by every cluster's `b`.  A new `cluster` variable has `allValue: ".+"`.  The comparison dashboards' run views filter by `baseline_cluster` or `candidate_cluster` instead.  Two queries read every cluster on purpose: the `cluster`, `baseline_cluster` and `candidate_cluster` variables, which list the clusters, and the Tests dashboard's listing.  `ClusterFilterTest` (`configuration/grafana/`) checks every core and kit dashboard and names the dashboard, the query and the unfiltered selector.  Every profile producer labels its profiles `cluster=<name>-<id>`, the value on every other signal: the JFR shipper, Alloy, the sidecar, the stress job, the Spark agent on EMR, and the presto and trino kits (which read `cluster_name` from `cluster-config`).
+
+Every cluster names its hosts the same way (db0, app0, control0), so a vector match pairs hosts `on (cluster, host_name)`, never `on (host_name)` alone.  With `cluster` set to All, `a / on (host_name) b` fails with "found duplicate series for the match group", and `and on (host_name)` keeps one cluster's series for another cluster's reason.  Every `by (...)` that feeds such a match keeps `cluster` (`sum by (cluster, host_name)`), and no match ignores `cluster`.  `ClusterJoinTest` (`configuration/grafana/`) checks every core and kit dashboard.  An arithmetic or comparison match `on (...)` without `group_left`/`group_right` aggregates each side by its match labels (`max by (cluster, host_name) (a) / on (cluster, host_name) max by (cluster, host_name) (b)`): a raw selector holds two series per host for the few minutes after a label appears or changes (`node_role`, a collector upgrade), and a range that covers them answers 422.  `OneToOneMatchTest` checks every core and kit dashboard.
+
+Every series keeps its cluster (owner decision, 2026-09-29), so two selected clusters never draw as one line.  Every PromQL and LogQL aggregation keeps `cluster`: `sum by (cluster, host_name)`, `histogram_quantile(0.99, sum by (cluster, le) (...))`, and `sum by (cluster) (...)` where the aggregation had no grouping.  Never `scalar()` a per-cluster aggregation, because it is NaN once two clusters are selected; match on the cluster instead: `a / on (cluster) group_left sum by (cluster) (b)`.  Every legend shows the cluster by its short name: the name and the first 8 characters of its id (`test-1a2b3c4d`), so two clusters that share a name still differ.  The query writes `cluster_name` from `<name>-<uuid>` with `label_replace(<expr>, "cluster_name", "$1", "cluster", "(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")`, and the legend reads it first: `{{cluster_name}} {{host_name}}`.  A legend never reads the raw `{{cluster}}`, which shows the whole `<name>-<uuid>`, and neither does an annotation title: the Loki annotation query writes `cluster_name` with `` | label_format cluster_name=`{{regexReplaceAll "^(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" .cluster "$1"}}` `` and titles with `{{cluster_name}}`.  A stat panel shows one value per cluster.  A field override that matched a legend matches it with the cluster in front: `byRegexp` `^(.* )?baseline$`, not `byName` `baseline`.  A table's legend names a value column, so a table keeps its legends and shows the cluster as a column instead: its `organize` hides `cluster` and renames `cluster_name` to "Cluster".  A table that hides `cluster` writes `cluster_name`, or it has no Cluster column.  Every Prometheus target of a table with more than one target is `format: table`: time-series frames keep their labels off the columns, so `merge` stacks every measure in one column and no row names its cluster.  A table joined over several frames names the columns it shows in its `organize` `includeByName`, with `cluster_name 1` first in `indexByName`: without it every label of every frame is a column (a ClickHouse table had 182).  A join or a concatenation of N targets numbers each frame's columns, so it hides `cluster 1` to `cluster N` and `cluster_name 2` to `cluster_name N`, and renames `cluster_name 1`.  A table joins rows with `merge`, or with `seriesToColumns`/`joinByField` on a key that every target writes from the long `cluster` (`label_join(<expr>, "cluster_instance", "/", "cluster", "instance")`, joined by `cluster_instance`, with the key column hidden), never on a label that two clusters share, and never with `concatenate`, which pairs rows by position.  Two clusters can share a short name (the default is `test`), so the key never reads `cluster_name`.  A query that groups by cluster takes a missing value's zero from a series that has the cluster, `or 0 * sum by (cluster) (<total>)`, never `or vector(0)`: `vector(0)` has no labels, so it gives no zero to a cluster without series and adds a zero that belongs to no cluster.  A `groupby` picker never offers `cluster`, because every grouping already has it and `by (cluster, cluster)` repeats a label.  The exceptions are the variables that list clusters, the Tests dashboard's listing, the comparison views' baseline and candidate run queries (one cluster per side), and the AWS/S3 queries below.  `SeriesClusterTest` (`configuration/grafana/`) checks every core and kit dashboard for all of these, and that every `cluster_name` write gives two clusters named `test` two short names, and names the file, the panel, and the aggregation, legend, override, table or join.  A table whose data links read the long `cluster` (the Tests listing) keeps it in the frame: a field override hides it (`custom.hidden`) and names `cluster_name` "Cluster" (`displayName`).
+
+Everywhere else a dashboard shows a cluster, it shows the short name too (owner decision, D3).  Each cluster picker (`cluster`, `baseline_cluster`, `candidate_cluster`) splits its options with a named-group regex, so the text is the short name and the value the full id that queries and links read: `/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/` for `label_values`, and the same groups inside `cluster="..."` for `query_result`.  A title, description, legend, annotation title or text panel names a picker as `${name:text}`, which renders the option text: the comparison runs' legends read `baseline ${baseline_cluster:text}`.  Queries, link URLs and a text panel's `src`/`href` keep `$cluster`.  `ClusterShortNameTest` checks every core and kit dashboard.  `PromQlCompatibilityIntegrationTest` runs every query that reads `groupby` once per value the picker offers.
+
+Every running cluster's YACE reports the shared account bucket, each copy labelled with its own cluster, so an AWS/S3 query collapses the copies: `max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (...)`, never a `sum` and never `by (cluster, ...)`.  With `cluster` set to All each bucket then counts once, and one cluster still shows its own values.  `SharedBucketCountTest` (`configuration/grafana/`) checks every AWS/S3 query.
+
+### The role picker
+
+System Overview and System A/B Comparison declare `role`, a multi-select custom variable with All.  System Overview also declares `service`, the `node_role` values; the collector derives it from the host name (`db`, `app`, `control`) and EMR nodes set their own; its `allValue` is `.*`, which also matches a series that carries no `node_role` (`NodeRoleVariableTest`).  A host's role is read from its name (owner decision), so the variable's `key : value` query maps each role to a host-name regex: `db : db[0-9]+,app : app[0-9]+,control : control[0-9]+,spark : ip-.+` (EMR nodes are named `ip-...` by EC2).  `allValue` is `.*`, which also matches a series with no `host_name`.  Queries read it as `host_name=~"${role:pipe}"`: `:pipe` joins the selected regexes with `|` unescaped, whereas `:regex` would escape them.  The host pickers (`hostname`; `baseline` and `candidate`) apply it, and so does every panel selector and PromQL annotation that has a cluster matcher.  The CloudWatch series carry the host as `tag_Name`, so that selector uses `tag_Name=~"${role:pipe}"`.  Links from these dashboards carry `${role:queryparam}`.  `RolePickerTest` (`configuration/grafana/`) checks the variable, the patterns against sample host names, the host pickers and every selector.
+
+### Install-time defaults
+
+The dashboard files store no defaults, because a default names a cluster or a tenant. They also save no auto-refresh (`"refresh": ""`): a saved refresh cancels every query still running at each tick, so a dashboard whose queries take longer than the interval never finishes loading. The refresh picker stays, and `DashboardRefreshTest` checks every core and kit dashboard. Every install
+path applies one pass, `DashboardDefaults` (`configuration/grafana/`): the core tree
+(`GrafanaDashboardTreeWriter`), kit dashboards on `start` (`KitRunnerCommand`), and
+`grafana install`. It sets, and changes nothing else:
+
+- each picker's `current` to the stable datasource of its type;
+- `cluster`, `baseline_cluster` and `candidate_cluster` to the current cluster: the value `<name>-<id>`
+  and the text its short name (a one-element list when the variable is multi-select);
+- `doc_tenant`'s options to every tenant, and its `current` to the cluster's own tenant;
+- `__DOCUMENTS_URL__` in any string to the documents web server, `http://<control private
+  IP>:3080`.
+
+So `grafana install` shows exactly what `up` installs.
+
+## The Tests dashboard
+
+`infrastructure/tests.json` (uid `tests`) lists every cluster of the tenant the Metrics picker
+selects, with its start, end and duration: the first and last `up` sample within `lookback`
+(custom, default `180d`), found by a subquery at the `resolution` step. The dashboard opens on
+`now-24h`: at `now-180d` Grafana sent the markers annotation as 180 one-day Loki requests in a row. Its
+`cluster` variable lists over `lookback` too, not over the dashboard range:
+`query_result(count by (cluster) (last_over_time(up[$lookback])))` with the regex `/cluster="(?<value>(?<text>[^"]+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)"/`
+(`ClusterVariableTest`). `resolution` holds seconds
+(text `5m`, value `300`), so the subquery step is `${resolution}s` and the row window is padded by
+one step in PromQL. The listing does not depend on the dashboard time range, so torn-down clusters
+are listed.
+
+The `cluster` column links to System Overview and Cassandra Overview (with `var-cluster` and the
+row's window as `from`/`to`), to `cluster-comparison` with only `var-baseline_cluster` set (no
+absolute range, because panel `timeFrom` is ignored under one), and back to Tests with
+`var-cluster` set. The single-select `cluster` variable picks the test whose documents the
+Documents panel shows.
+
+## Comparison views
+
+`cluster-comparison`, `ab-comparison` and `system-ab-comparison` compare two runs of any lengths.
+`baseline_cluster` and `candidate_cluster` are single-select `query_result` variables over
+`$lookback`, evaluated at now; the dashboard range stays relative and ends at now. Hidden helper
+variables (all `query_result`, evaluated at now) hold each run's `base_start`/`cand_start` and
+`base_end`/`cand_end` (epoch seconds), `base_len`/`cand_len`, `max_len`, the overlay offsets
+`base_offset`/`cand_offset` (`now - max_len - start`, negative for a run that started later) and the
+side-by-side shifts `base_since_end`/`cand_since_end`. Each of `max_len`, `base_len`, `cand_len`,
+`base_since_end` and `cand_since_end` also has a `_d` helper (whole days, `floor(x / 86400)`) and a `_s`
+helper (the remaining seconds, `x - 86400 * ${x_d}`, so it reads `_d` and resolves after it) for the panel time overrides.
+
+Grafana's date math reads at most five digits per number, so a `timeFrom` or `timeShift` of `${x}s`
+fails with "invalid timeshift" once `x` passes 99999 seconds (27.8 hours). Write each override as
+`${x_s}s-${x_d}d`: `timeShift: "3600s-5d"` shifts by 1 hour and 5 days. PromQL has no such limit, so
+`offset` and range values stay in plain seconds. `PanelTimeOverrideTest` fails on any `${x}s` override.
+
+The order is load-bearing. Grafana 13.2.2's `PanelTimeRange` recomputes the override each time a helper it reads completes, but keeps the new range only when the header text (`timeInfo`) changes, and a `timeFrom` header names only the first number ("Last 0 day"). With days first, a panel whose `_s` resolved after its `_d` kept the one-second range from `0d-s` until a manual refresh. Seconds first, with `_s` computed from `_d`, makes the seconds helper complete last, and that completion always changes the header: from invalid while it is empty to "Last 9000 seconds". `PanelTimeOverrideTest` checks both the order and the `_s` query.
+
+Three rows sit at the top, above the existing panels:
+
+- **Overlay**: panel `timeFrom` `${max_len_s}s-${max_len_d}d`; each run's query has `offset ${base_offset}s` or
+  `offset ${cand_offset}s`, so both start at the left edge.
+- **Side by side**: one column per run, panel `timeFrom` `${base_len_s}s-${base_len_d}d` and `timeShift`
+  `${base_since_end_s}s-${base_since_end_d}d` (and the candidate's), so each axis shows the run's real times.
+- **Summary and documents**: one instant table query that joins every figure with `or`: each figure
+  over `[${base_len}s] @ ${base_end}` per run and `100 * (C - B) / (B != 0)`, tagged with `label_replace` as
+  `figure` and `run` (`1 baseline`, `2 candidate`, `3 difference %`). `groupingToMatrix` (column `run`,
+  row `figure`, value `Value`) makes one row per figure, and `organize` orders and names the columns
+  Figure, Baseline, Candidate, Difference %. Beside it both runs' documents. Keep it one query: with
+  several, Grafana names the value fields `Value #A`, `Value #B`, ..., and `groupingToMatrix`, which needs
+  one frame and a field named `Value`, returns the rows unpivoted. `ComparisonDashboardsTest` checks this.
+  The `!= 0` filter drops a zero baseline, so that figure's Difference % cell is empty instead of NaN (0 vs 0) or an infinite percentage; each summary's description says so. `ComparisonDashboardsTest` checks every difference term for the guard.
+
+The new views filter by `baseline_cluster` and `candidate_cluster` only; the `cluster`, build and
+host variables of the A/B dashboards apply to the existing panels. They need a relative dashboard range: an absolute range turns panel `timeFrom`
+off. `DashboardQueries` gives the helper variables sample values, so
+`PromQlCompatibilityIntegrationTest` runs the negative `offset`, `@` and subquery forms against the
+pinned Mimir.
+
+## Test documents on dashboards
+
+A test's documents are `reports/<tenant>/<name>-<id>/index.html` in the account bucket (written by
+`report upload` and by `up`). A dashboard shows them in a Text panel in HTML mode with an iframe:
+
+```html
+<iframe src="__DOCUMENTS_URL__/reports/${doc_tenant}/${cluster}/index.html" width="100%" height="696"></iframe>
+```
+
+`doc_tenant` is a custom variable with empty options in the file; the installer fills them. One
+`doc_tenant` serves the whole dashboard, so the documents of two tenants are not shown together.
+Grafana runs with `disable_sanitize_html` (set in `[panels]` by `GF_PANELS_DISABLE_SANITIZE_HTML`), and the documents web server in the Grafana pod serves
+the file (see `configuration/CLAUDE.md`).
+
+The Text panel sanitizer keeps only `src`, `width` and `height` on an iframe and strips `style`, so size the iframe with attributes: `width="100%"` and a pixel `height` that fills the panel. The height is the panel height, `h * 38 - 8` px, less 56 px for the header, the padding and the inline gap. `DocumentsIframeTest` checks every iframe against its panel's `gridPos.h`.
+
+## Rows are placed by position, not by file order
+
+Grafana sorts a dashboard's top-level panels by `gridPos` (y, then x) and gives each panel to the row above it in that order. A collapsed row keeps its own panels in its `panels` array, so a top-level panel that sorts under a collapsed row is hidden in it, and the row it was written under renders empty. Give every row its own `y`, below the panels of the row before it. `DashboardRowOrderTest` fails when a top-level panel sorts under a collapsed row or two rows share a `y`, for core and kit dashboards.
 
 ## Label Name Conventions
 
@@ -74,7 +220,8 @@ Mimir and Loki both turn OTel attribute names into underscore names:
 
 Every Grafana annotation is mirrored to Loki as its own stream (`source="annotation"`, `cluster`, `annotation_id`; the text is the log line, and the tags, dashboard uid, panel id and end time are structured metadata), so it survives the cluster. Core dashboards read their markers from Loki, not from Grafana's tag query:
 
-- Query: `{source="annotation", cluster=~"${cluster:regex}"} | dashboard_uid=""` — global markers only. A dashboard with no `cluster` variable uses `cluster=~".+"`.
+- Datasource: `{"type": "loki", "uid": "${logs_datasource}"}`, so the markers follow the Logs picker.
+- Query: `{source="annotation", cluster=~"${cluster:regex}"} | dashboard_uid=""` — global markers only.
 - `CoreDashboardAnnotationsTest` fails when a core dashboard lacks this annotation query.
 
 ## Trace Links in Log Panels — Two Distinct Mechanisms
@@ -117,7 +264,7 @@ The panes JSON contains `queryType: "traceql"` with a query like `{ resource.hos
 
 - **Logs panels (`type: "logs"`) do NOT support this mechanism** — `fieldConfig.defaults.links` is ignored on log panels
 - Only works on `timeseries`, `stat`, `table`, and similar metric panel types
-- Use `bin/generate-dashboard-links.py` to build correct URL-encoded panes values
+- Build the URL-encoded panes value with the `encode_panes` recipe in [Cross-Dashboard Navigation](#cross-dashboard-navigation-datalinks)
 
 ### Summary table
 
@@ -152,7 +299,7 @@ Always use `panes=` (NOT the legacy `left=` parameter). The `left=` format is un
 
 The panes value is a JSON object URL-encoded with `urllib.parse.quote`. Grafana template variables (`${__field.labels.service_name}`, `${__from}`, `${__to}`) must **not** be URL-encoded — leave them as-is so Grafana interpolates them before navigating.
 
-Use the Python helper in `bin/generate-dashboard-links.py` (or inline in migration scripts) to build correct URLs:
+Build the URLs with this recipe, inline in the edit script. It is the one copy; there is no helper script:
 
 ```python
 import json, re, urllib.parse
@@ -176,9 +323,10 @@ Use `queryType: "traceql"` with a raw TraceQL `query` string. **Do NOT use `quer
 
 ```python
 def tempo_explore(traceql, title):
-    panes = {"a": {"datasource": "tempo",
+    # The picker, not the fixed uid: encode_panes leaves ${traces_datasource} unencoded.
+    panes = {"a": {"datasource": "${traces_datasource}",
                    "queries": [{"refId": "A",
-                                "datasource": {"uid": "tempo", "type": "tempo"},
+                                "datasource": {"uid": "${traces_datasource}", "type": "tempo"},
                                 "queryType": "traceql",
                                 "query": traceql,
                                 "limit": 20}],
@@ -198,9 +346,9 @@ Common TraceQL patterns:
 
 ```python
 def logs_explore(expr, title):
-    panes = {"a": {"datasource": "loki",
+    panes = {"a": {"datasource": "${logs_datasource}",
                    "queries": [{"refId": "A",
-                                "datasource": {"uid": "loki", "type": "loki"},
+                                "datasource": {"uid": "${logs_datasource}", "type": "loki"},
                                 "editorMode": "code",
                                 "expr": expr,
                                 "queryType": "range"}],
@@ -231,7 +379,9 @@ def pyroscope_explore(label_selector, title):
             "targetBlank": True}
 ```
 
-Example: `label_selector = '{service_name="${__field.labels.service_name}"}'`
+Example: `label_selector = '{cluster=~"${cluster:regex}",service_name="${__field.labels.service_name}"}'`
+
+Pyroscope has no picker, so this link keeps the fixed `pyroscope` uid.
 
 ### Dashboard Navigation Link (panel header)
 
@@ -240,7 +390,9 @@ Added to the panel-level `links` array (not `fieldConfig.defaults.links`). Appea
 ```python
 def sysoverview_link():
     return {"title": "System Overview",
-            "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}",
+            # Pass each picker and cluster variable the source dashboard declares (the link rule).
+            "url": "/d/system-overview/system-overview?from=${__from}&to=${__to}"
+                   "&${metrics_datasource:queryparam}&${cluster:queryparam}",
             "targetBlank": False}
 ```
 

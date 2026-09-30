@@ -44,6 +44,9 @@ object Constants {
         const val MAX_POLL_TIMEOUT_MS = 4 * 60 * 60 * 1000L // 4 hours
         const val LOG_INTERVAL_POLLS = 12 // Log every 12 polls (60 seconds at 5s interval)
         const val COMMAND_RUNNER_JAR = "command-runner.jar"
+
+        /** Directory, relative to the working directory, that downloaded EMR logs are saved under. */
+        const val LOCAL_LOGS_DIR = "logs"
         const val SPARK_SUBMIT_COMMAND = "spark-submit"
 
         // The Java agent's service.name for a job is this prefix and the job's (and its step's) name
@@ -66,6 +69,12 @@ object Constants {
 
         // Maximum log lines to display on job failure
         const val MAX_LOG_LINES = 100
+
+        // After a step fails, how often to check for the stderr EMR uploads once the step has ended,
+        // and how many checks to make. EMR uploads a step's logs every five minutes while it runs
+        // and once more after it ends; the final copy has been seen five minutes after the failure.
+        const val FINAL_STDERR_POLL_INTERVAL_MS = 15_000L
+        const val FINAL_STDERR_MAX_ATTEMPTS = 28
     }
 
     // Retry configuration
@@ -276,6 +285,9 @@ object Constants {
         /** Directory of the Grafana annotation backups under [GRAFANA_ROOT]; the tenant follows it. */
         const val ANNOTATIONS_DIR = "annotations"
 
+        /** Root of the test documents: `reports/<tenant>/<name>-<id>/`, one folder per test. */
+        const val REPORTS_ROOT = "reports"
+
         /** The tenant of a cluster that was initialized without `--tenant`. */
         const val DEFAULT_TENANT = "default"
 
@@ -353,6 +365,12 @@ object Constants {
         /** Mimir's gossip listener, bound to loopback; Pyroscope holds the default 7946. */
         const val MIMIR_MEMBERLIST_PORT = 7947
 
+        /** The memcached sidecar in the Mimir pod, on the control node's loopback: Mimir's caches. */
+        const val MIMIR_MEMCACHED_PORT = 11211
+
+        /** The memcached sidecar's image, a released version. */
+        const val MIMIR_MEMCACHED_IMAGE = "memcached:1.6.34-alpine"
+
         /** Loki's `app.kubernetes.io/name` label and Service name; the collector finds its pod by it. */
         const val LOKI_APP_LABEL = "loki"
 
@@ -429,13 +447,6 @@ object Constants {
         const val STOP_WAIT_MAX_POLLS = 150
 
         val SHELL_VAR_PATTERN = Regex("""\$\{(\w+)}""")
-    }
-
-    // ClickHouse configuration
-    object ClickHouse {
-        const val NAMESPACE = "default"
-        const val HTTP_PORT = 8123
-        const val NATIVE_PORT = 9000
     }
 
     // YACE (Yet Another CloudWatch Exporter) configuration
@@ -715,6 +726,13 @@ object Constants {
         const val LABEL_VALUE = "cassandra-easy-stress"
         const val DEFAULT_CASSANDRA_PORT = 9042
         const val PROMETHEUS_PORT = 9500
+
+        /**
+         * The share of stress requests the OpenTelemetry agent traces. At 100% a stress job sent
+         * 5,000 spans/s, and Tempo used about 1.5 of the control node's 4 cores to take them in.
+         * Span-metric request rates for cassandra-easy-stress therefore read at this ratio.
+         */
+        const val TRACE_SAMPLE_RATIO = "0.01"
     }
 
     /** The flush of Loki and Mimir that `down` runs before any infrastructure is torn down. */
@@ -814,6 +832,12 @@ object Constants {
         const val MAX_UID_LENGTH = 40
 
         /**
+         * The environment variable that sets `disable_sanitize_html`. Grafana reads the setting from
+         * `[panels]`, so a Text panel keeps the documents iframe only when this is `true`.
+         */
+        const val DISABLE_SANITIZE_HTML_ENV = "GF_PANELS_DISABLE_SANITIZE_HTML"
+
+        /**
          * The uids of the provisioned datasources. Dashboards, links between datasources and the
          * annotation queries name a datasource by its uid, so these are part of every dashboard.
          */
@@ -822,6 +846,25 @@ object Constants {
             const val LOKI = "loki"
             const val TEMPO = "tempo"
             const val PYROSCOPE = "pyroscope"
+        }
+
+        /**
+         * The test documents Grafana shows: a read-only web server on the control node's host
+         * network, and the signing proxy it forwards to, bound to loopback. 8081 is the image
+         * renderer's.
+         */
+        object Documents {
+            /** Host port of the read-only documents web server, reachable from the browser like Grafana. */
+            const val WEB_PORT = 3080
+
+            /** Loopback port of the `aws-sigv4-proxy` that signs the web server's S3 requests. */
+            const val PROXY_PORT = 3081
+
+            /** The signing proxy, a released version. */
+            const val SIGV4_PROXY_IMAGE = "public.ecr.aws/aws-observability/aws-sigv4-proxy:1.13"
+
+            /** The read-only web server, a released stable nginx that runs as a non-root user. */
+            const val WEB_SERVER_IMAGE = "nginxinc/nginx-unprivileged:1.30.5-alpine"
         }
     }
 

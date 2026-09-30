@@ -4,8 +4,10 @@ import com.rustyrazorblade.easydblab.Constants
 import com.rustyrazorblade.easydblab.annotations.RequiresProxy
 import com.rustyrazorblade.easydblab.commands.PicoBaseCommand
 import com.rustyrazorblade.easydblab.configuration.ClusterHost
+import com.rustyrazorblade.easydblab.configuration.grafana.DashboardDefaults
 import com.rustyrazorblade.easydblab.events.Event
-import com.rustyrazorblade.easydblab.services.GrafanaDashboardService
+import com.rustyrazorblade.easydblab.services.DashboardInstallContextFactory
+import com.rustyrazorblade.easydblab.services.GrafanaClient
 import com.rustyrazorblade.easydblab.services.InstallStep
 import com.rustyrazorblade.easydblab.services.KitConfig
 import com.rustyrazorblade.easydblab.services.KitDashboardInstance
@@ -22,8 +24,11 @@ import com.rustyrazorblade.easydblab.services.WorkloadPresence
 import com.rustyrazorblade.easydblab.services.WorkloadStepExecutor
 import com.rustyrazorblade.easydblab.services.installConfigYaml
 import com.rustyrazorblade.easydblab.services.selectInstanceDashboards
+import com.rustyrazorblade.easydblab.services.uidsInstalledElsewhere
 import com.rustyrazorblade.easydblab.services.withKitName
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.koin.core.component.inject
 import org.koin.core.parameter.parametersOf
 import picocli.CommandLine
@@ -45,7 +50,8 @@ class KitRunnerCommand(
     var name: String = "backup-${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}"
 
     val runtimeArgValues: MutableMap<String, String> = mutableMapOf()
-    private val grafanaDashboardService: GrafanaDashboardService by inject()
+    private val grafanaClient: GrafanaClient by inject()
+    private val installContextFactory: DashboardInstallContextFactory by inject()
     private val workloadStepExecutor: WorkloadStepExecutor by inject()
     private val metricsRegistryService: MetricsRegistryService by inject()
     private val kitHookExecutor: KitHookExecutor by inject()
@@ -430,16 +436,41 @@ class KitRunnerCommand(
             }
 
         val files = dashboardFiles(config)
-        val rendered =
-            runCatching {
-                KitDashboardInstance(kitName = kitName, kitType = config.name, dashboards = files.map { it.readText() }).rendered()
-            }.getOrElse { e ->
-                log.warn(e) { "Failed to read the dashboards of $kitName" }
+        if (files.isEmpty()) return
+        val names = files.map { it.name }
+        val context =
+            runCatching { installContextFactory.forCluster(clusterState, controlHost) }.getOrElse { e ->
+                eventBus.emit(
+                    Event.Grafana.KitDashboardsSkipped(kitName, names, "listing the tenants in the account bucket failed: ${e.message}"),
+                )
                 return
             }
-        files.zip(rendered).forEach { (file, dashboardJson) ->
-            grafanaDashboardService
-                .installDashboard(dashboardJson = dashboardJson, controlHost = controlHost, folderName = kitName)
+        val rendered =
+            runCatching {
+                val elsewhere =
+                    uidsInstalledElsewhere(config.dashboards, instanceExtension(config)) { ref ->
+                        val file = File(kitDir, ref.path)
+                        if (file.isFile) {
+                            file.readText()
+                        } else {
+                            log.warn { "Dashboard file not found: ${file.absolutePath}" }
+                            null
+                        }
+                    }
+                KitDashboardInstance(
+                    kitName = kitName,
+                    kitType = config.name,
+                    dashboards = files.map { it.readText() },
+                    elsewhere = elsewhere,
+                ).rendered()
+                    .map { DashboardDefaults.apply(Json.parseToJsonElement(it).jsonObject, context) }
+            }.getOrElse { e ->
+                eventBus.emit(Event.Grafana.KitDashboardsSkipped(kitName, names, "reading the dashboards failed: ${e.message}"))
+                return
+            }
+        files.zip(rendered).forEach { (file, dashboard) ->
+            grafanaClient
+                .installDashboard(dashboard = dashboard, controlHost = controlHost, folderName = kitName)
                 .onFailure { log.warn(it) { "Failed to install dashboard ${file.name}" } }
         }
     }
@@ -455,13 +486,15 @@ class KitRunnerCommand(
                 .orEmpty()
                 .sortedBy { it.name }
         }
-        val extension = config.extensionArg?.let { readResolvedArgs()[it.variable] }.orEmpty()
-        return selectInstanceDashboards(config.dashboards, extension)
+        return selectInstanceDashboards(config.dashboards, instanceExtension(config))
             .map { File(kitDir, it.path) }
             .filter { file ->
                 file.isFile.also { found -> if (!found) log.warn { "Dashboard file not found: ${file.absolutePath}" } }
             }
     }
+
+    /** The extension this instance was created with, or empty for the plain kit. */
+    private fun instanceExtension(config: KitConfig): String = config.extensionArg?.let { readResolvedArgs()[it.variable] }.orEmpty()
 
     companion object {
         private val log = KotlinLogging.logger {}

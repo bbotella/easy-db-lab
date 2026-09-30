@@ -1,5 +1,6 @@
 package com.rustyrazorblade.easydblab
 
+import com.rustyrazorblade.easydblab.configuration.grafana.DashboardFiles
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -36,14 +37,7 @@ object DashboardQueries {
     private val json = Json { ignoreUnknownKeys = true }
 
     /** The core dashboards and every kit's dashboards. */
-    fun files(): List<File> {
-        val core = File("dashboards").walkTopDown().filter { it.isFile && it.extension == "json" }
-        val kits =
-            File("src/main/resources/com/rustyrazorblade/easydblab/kits")
-                .walkTopDown()
-                .filter { it.isFile && it.extension == "json" && it.parentFile.name == "dashboards" }
-        return (core + kits).sortedBy { it.path }.toList()
-    }
+    fun files(): List<File> = DashboardFiles.all()
 
     /** Every query of [language] in every dashboard. */
     fun all(language: Language): List<Query> = files().flatMap { queries(it) }.filter { it.language == language }
@@ -51,6 +45,7 @@ object DashboardQueries {
     private fun queries(file: File): List<Query> {
         val dashboard = json.parseToJsonElement(file.readText()).jsonObject
         val variables = variableValues(dashboard)
+        val groupings = groupingValues(dashboard)
         val found = mutableListOf<Query>()
 
         fun add(
@@ -60,7 +55,7 @@ object DashboardQueries {
         ) {
             val language = languageOf(datasource) ?: return
             if (text.isNullOrBlank()) return
-            found += Query("${file.path} $where", language, substitute(text, variables))
+            found += variants("${file.path} $where", text, variables, groupings).map { (source, query) -> Query(source, language, query) }
         }
 
         walkPanels(dashboard) { panel ->
@@ -107,13 +102,52 @@ object DashboardQueries {
                 else -> null to null
             }
         return when {
-            uid == "loki" || type == "loki" -> Language.LOGQL
-            uid == "mimir" || type == "prometheus" || uid == "\${datasource}" -> Language.PROMQL
+            type == "loki" -> Language.LOGQL
+            type == "prometheus" -> Language.PROMQL
+            type != null -> null
+            uid == "loki" || uid == LOGS_PICKER -> Language.LOGQL
+            uid == "mimir" || uid == METRICS_PICKER -> Language.PROMQL
             // A panel with no datasource uses the default, which is Mimir.
-            uid == null && type == null -> Language.PROMQL
+            uid == null -> Language.PROMQL
             else -> null
         }
     }
+
+    private const val METRICS_PICKER = "\${metrics_datasource}"
+    private const val LOGS_PICKER = "\${logs_datasource}"
+
+    /**
+     * Plausible values for the comparison and Tests dashboards' helper variables. Each is a query
+     * variable that Grafana fills at load time, so the file holds no value to substitute; these
+     * stand in for them so the negative `offset`, `@` and subquery forms reach the pinned Mimir.
+     */
+    private val sampleValues =
+        mapOf(
+            "role" to "db[0-9]+|app[0-9]+",
+            "lookback" to "180d",
+            "resolution" to "300",
+            "base_start" to "1790000000",
+            "base_end" to "1790086400",
+            "base_len" to "86400",
+            "cand_start" to "1790600000",
+            "cand_end" to "1790621600",
+            "cand_len" to "21600",
+            "max_len" to "86400",
+            "base_offset" to "3600",
+            "cand_offset" to "-600",
+            "base_since_end" to "600000",
+            "cand_since_end" to "600",
+            "max_len_d" to "1",
+            "max_len_s" to "0",
+            "base_len_d" to "1",
+            "base_len_s" to "0",
+            "cand_len_d" to "0",
+            "cand_len_s" to "21600",
+            "base_since_end_d" to "6",
+            "base_since_end_s" to "81600",
+            "cand_since_end_d" to "0",
+            "cand_since_end_s" to "600",
+        )
 
     private fun walkPanels(
         element: JsonElement,
@@ -187,13 +221,43 @@ object DashboardQueries {
                     ?.split(",")
                     ?.firstOrNull()
                     ?.trim()
-            name to
-                when (type) {
+            name to (
+                sampleValues[name] ?: when (type) {
                     "custom", "interval", "constant" -> currentValue ?: firstOption ?: "x"
                     "textbox" -> currentValue ?: ""
                     else -> "x"
                 }
+            )
         }
+
+    /**
+     * [text] with its variables substituted, labelled with [source]. A grouping picker's every value
+     * goes into a `by (...)`, so a query that reads one is run once per value.
+     */
+    private fun variants(
+        source: String,
+        text: String,
+        variables: Map<String, String>,
+        groupings: Map<String, List<String>>,
+    ): List<Pair<String, String>> {
+        val grouped = groupings.filterKeys { Regex("""\$\{?$it\b""").containsMatchIn(text) }
+        if (grouped.isEmpty()) return listOf(source to substitute(text, variables))
+        return grouped.flatMap { (name, values) ->
+            values.map { value -> "$source [$name=$value]" to substitute(text, variables + (name to value)) }
+        }
+    }
+
+    /** The custom variables that pick a label to group by (`groupby`), with every value each offers. */
+    private fun groupingValues(dashboard: JsonObject): Map<String, List<String>> =
+        templating(dashboard)
+            .filter { it["type"]?.jsonPrimitive?.contentOrNull == "custom" }
+            .mapNotNull { variable ->
+                val name = variable["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it in groupingVariables }
+                val query = (variable["query"] as? JsonPrimitive)?.contentOrNull
+                if (name == null || query == null) null else name to query.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            }.toMap()
+
+    private val groupingVariables = setOf("groupby")
 
     /** [text] with Grafana's built-in and dashboard variables replaced the way Grafana would. */
     fun substitute(

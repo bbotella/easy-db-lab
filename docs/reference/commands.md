@@ -231,11 +231,13 @@ Display full environment status.
 easy-db-lab status
 ```
 
+The `=== KITS ===` section lists every installed kit, marking the running ones with `✓`. Under each running kit it prints the endpoints that the kit's `kit.yaml` declares: the NodePorts on each host of the endpoint's node type. A stopped kit shows no endpoints.  If a running kit's `kit.yaml` cannot be read, the kit shows `(endpoints unavailable: cannot read kit.yaml)` instead of its endpoints.
+
 `status` is the one command that degrades instead of failing outright when the SOCKS proxy
 tunnel can't be established. It still reports EC2, VPC, security groups, Spark/EMR, OpenSearch,
 S3, kits, observability URLs, and database versions — the last read directly over SSH, which
-never uses the tunnel. Only the sections that require the private Kubernetes API (stress jobs,
-ClickHouse) are marked unavailable, each stating the proxy failure as the reason. `status` still
+never uses the tunnel. Only the section that requires the private Kubernetes API (stress jobs)
+is marked unavailable, stating the proxy failure as the reason. `status` still
 exits non-zero when degraded, so a partial report is never mistaken for a healthy cluster by a
 script. See [Network Connectivity](../user-guide/network-connectivity.md) for how to diagnose a
 tunnel that won't come up.
@@ -637,11 +639,14 @@ Execute commands on remote hosts via `systemd-run`. Tool output is captured by t
 
 #### exec run
 
-Run a command on remote hosts (foreground by default).
+Run a command on remote hosts (foreground by default). The command runs through `bash -c`: pass a whole command line as one quoted argument, or pass words after `--`, which are quoted one by one. If the command fails on any host, `exec run` prints that host's output, reports the host, and exits non-zero.
 
 ```bash
 # Foreground (blocks until complete, shows output)
 easy-db-lab exec run -t cassandra -- ls /mnt/db1
+
+# A shell command line, quoted as one argument
+easy-db-lab exec run --hosts db0 "df -h /mnt/db1 | tail -1"
 
 # Background (returns immediately, tool keeps running)
 easy-db-lab exec run --bg -t cassandra -- inotifywait -m /mnt/db1/data
@@ -654,7 +659,7 @@ easy-db-lab exec run --bg --name watch-imports -t cassandra -- inotifywait -m /m
 |--------|-------------|
 | `-t, --type` | Server type: cassandra, stress, control (default: cassandra) |
 | `--bg` | Run in background (returns immediately) |
-| `--name` | Name for the systemd unit (auto-derived if not provided) |
+| `--name` | Name for the systemd unit, `edl-exec-<name>` (default: the command's first word and a timestamp). Characters systemd does not allow become `-`. |
 | `--hosts` | Filter to specific hosts |
 | `-p` | Execute in parallel across hosts |
 
@@ -832,7 +837,7 @@ easy-db-lab grafana update-config
 
 ### grafana install
 
-Upload a single dashboard JSON file to the running Grafana instance through its HTTP API. This is the one-off path for a dashboard that is not part of the core tree; it does not touch the copied tree, and the dashboard is updated in place only if the JSON carries a top-level `uid`.
+Upload a single dashboard JSON file to the running Grafana instance through its HTTP API. This is the one-off path for a dashboard that is not part of the core tree; it does not touch the copied tree, and the dashboard is updated in place only if the JSON carries a top-level `uid`. Before the upload, the command applies the same defaults `up` applies, from the workspace's cluster state: each tenant picker selects the cluster's own tenant, and `cluster`, `baseline_cluster` and `candidate_cluster` select the current cluster.
 
 ```bash
 easy-db-lab grafana install my-dashboard.json --folder=experiments
@@ -879,6 +884,28 @@ This backup also runs automatically before teardown; see [`down`](#down).
 
 ---
 
+## Report Commands
+
+### report upload
+
+Attach markdown documents to the current test. Each file is stored in the test's folder in the account bucket, `reports/<tenant>/<name>-<id>/`, with an HTML copy, and the test's `index.html` is rebuilt to hold every document, each under its own heading, in name order. The Tests and comparison dashboards show that index. A file with the name of a stored document replaces it.
+
+The command accepts only `.md` files whose names hold letters, digits, `.`, `_` and `-`, and refuses `index.md` and a name given twice. It checks every file first; if it refuses any, it names each one and uploads nothing. It uses your own AWS credentials and needs only the workspace's `state.json`, so it works before and after `down`.
+
+If an upload fails, the command names the failed file and each document it already stored.  Those documents are in the bucket but not yet in the index.  Run the command again.
+
+```bash
+easy-db-lab report upload results.md notes.md
+```
+
+| Argument | Description |
+|----------|-------------|
+| `FILE...` | One or more markdown files (required) |
+
+Two uploads for one test at the same moment can each rebuild the index without the other's document; the next upload restores it.
+
+---
+
 ## ClickHouse Commands
 
 ### clickhouse start
@@ -919,11 +946,17 @@ easy-db-lab spark submit [options]
 
 ### spark status
 
-Check status of a Spark job.
+Check status of a Spark job (the most recent job, or the one `--step-id` names).
 
 ```bash
 easy-db-lab spark status [options]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--step-id` | EMR step ID (defaults to the most recent job) |
+| `--verbose`, `-v` | Show detailed step information (equivalent to `aws emr describe-step`) |
+| `--logs` | Download the step's `stderr.gz` from S3 and print it; if EMR has not uploaded it yet, print the S3 path where it will appear |
 
 ### spark jobs
 

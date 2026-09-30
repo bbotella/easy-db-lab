@@ -40,17 +40,17 @@ The following instrumentation applies to cluster nodes (Cassandra, stress, Spark
 
 ### Node Role Labeling
 
-The OTel Collector (0.161.0) on cluster nodes uses the `k8s_attributes` processor to read the K8s node label `type` and set it as the `node_role` resource attribute. This label is used by Grafana dashboards (e.g., System Overview) for hostname and service filtering.
+The OTel Collector (0.161.0) on cluster nodes sets the `node_role` resource attribute of host metrics and host log files from the node's host name: `db<N>` is `db`, `app<N>` is `app`, and `control<N>` is `control` (`transform/node_role_from_host`). A `node_role` that is already set is kept. This label is used by Grafana dashboards (e.g., System Overview) for hostname and service filtering.
 
 | Node Type | K8s Label | `node_role` Value | Source |
 |-----------|-----------|-------------------|--------|
-| Cassandra host metrics | `type=db` | `db` | K3s agent config |
+| Cassandra host metrics | N/A | `db` | Host name `db<N>` |
 | Cassandra JVM | N/A | `db` | `otel.resource.attributes` in `cassandra.in.sh` |
-| Stress | `type=app` | `app` | K3s agent config |
-| Control | `type=control` | `control` | `Up` command node labeling |
+| Stress host metrics | N/A | `app` | Host name `app<N>` |
+| Control host metrics | N/A | `control` | Host name `control<N>` |
 | Spark/EMR | N/A | `spark` | EMR OTel Collector `resource/role` processor |
 
-The `k8s_attributes` processor runs in the `metrics/local` and `logs/local` pipelines only. Metrics arriving over OTLP take the `metrics/otlp` pipeline, which does not run it, so each OTLP source sets `node_role` itself: the Cassandra JVM agent and the stress sidecar declare it as a resource attribute, and Spark nodes set it in their own collector.
+The host-name rule runs in the `metrics/local` and `logs/local` pipelines only. Host metrics and host log files carry no pod, so the `k8s_attributes` processor cannot find the node's `type` label for them. It still runs in `metrics/local`, before the host-name rule, for the kit metrics scraped by pod discovery: the Prometheus receiver sets each target's pod and namespace, and `k8s_attributes` adds the pod's labels (`k8s_app_instance`, which the kit dashboards select on) and the node's `type` as `node_role`. It also runs on container logs (`logs/containers`). Metrics arriving over OTLP take the `metrics/otlp` pipeline, which runs neither, so each OTLP source sets `node_role` itself: the Cassandra JVM agent and the stress sidecar declare it as a resource attribute, and Spark nodes set it in their own collector.
 
 The processor requires RBAC access to the K8s API. The OTel Collector DaemonSet runs with a dedicated ServiceAccount (`otel-collector`) that has read-only access to pods and nodes.
 
@@ -211,7 +211,7 @@ Key details:
 
 ### YACE CloudWatch Scrape
 
-YACE (Yet Another CloudWatch Exporter) runs on the control node and scrapes AWS CloudWatch metrics for services used by the cluster. It uses tag-based auto-discovery with the `easy_cass_lab=1` tag to find relevant resources.
+YACE (Yet Another CloudWatch Exporter) runs on the control node and scrapes AWS CloudWatch metrics for services used by the cluster. It uses tag-based auto-discovery with the `easy_cass_lab=1` tag. For EC2 instances, EBS volumes and OpenSearch domains it also requires the cluster's own `ClusterId` tag, so each cluster reports only its own resources. The S3 job finds every bucket tagged `easy_cass_lab=1`, because the account bucket is shared by every cluster.
 
 YACE scrapes metrics for:
 - **S3** — bucket request/byte counts

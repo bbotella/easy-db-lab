@@ -126,6 +126,16 @@ sealed interface Event {
             override fun toDisplayString(): String = "cassandra-sidecar shutdown completed on Cassandra nodes"
         }
 
+        /** A stop of some db nodes left the sidecar DaemonSet in place for the [runningHosts] that still run the database. */
+        @Serializable
+        @SerialName("Cassandra.SidecarKept")
+        data class SidecarKept(
+            val runningHosts: List<String>,
+        ) : Cassandra {
+            override fun toDisplayString(): String =
+                "cassandra-sidecar keeps running: ${runningHosts.joinToString(", ")} still run the database"
+        }
+
         @Serializable
         @SerialName("Cassandra.RestartingAllNodes")
         data object RestartingAllNodes : Cassandra {
@@ -1733,6 +1743,45 @@ sealed interface Event {
         }
 
         @Serializable
+        @SerialName("Emr.StepStderrWaiting")
+        data class StepStderrWaiting(
+            val stepId: String,
+            val maxWaitSeconds: Long,
+        ) : Emr {
+            override fun toDisplayString(): String =
+                "Waiting up to ${maxWaitSeconds}s for EMR to upload the final stderr of step $stepId..."
+        }
+
+        @Serializable
+        @SerialName("Emr.StepStderrNotFinal")
+        data class StepStderrNotFinal(
+            val stepId: String,
+            val s3Uri: String,
+            val waitedSeconds: Long,
+        ) : Emr {
+            override fun toDisplayString(): String =
+                """
+                |EMR did not upload the final stderr of step $stepId within ${waitedSeconds}s; the copy uploaded so far
+                |ends before the failure. The full log will appear at:
+                |  $s3Uri
+                |Fetch it later with: easy-db-lab spark status --step-id $stepId --logs
+                """.trimMargin()
+        }
+
+        @Serializable
+        @SerialName("Emr.StepStderrNotUploaded")
+        data class StepStderrNotUploaded(
+            val stepId: String,
+            val s3Uri: String,
+        ) : Emr {
+            override fun toDisplayString(): String =
+                """
+                |EMR has not uploaded the stderr of step $stepId to S3 yet. It will appear at:
+                |  $s3Uri
+                """.trimMargin()
+        }
+
+        @Serializable
         @SerialName("Emr.SparkLogDownloadFailed")
         data class SparkLogDownloadFailed(
             val error: String,
@@ -2524,6 +2573,22 @@ sealed interface Event {
             override fun toDisplayString(): String = "Installed Grafana dashboard: $title"
         }
 
+        /**
+         * [kit]'s [dashboards] were not installed because preparing them failed, for [reason]: the
+         * tenant listing in the account bucket, or reading a dashboard file. The kit itself is running.
+         */
+        @Serializable
+        @SerialName("Grafana.KitDashboardsSkipped")
+        data class KitDashboardsSkipped(
+            val kit: String,
+            val dashboards: List<String>,
+            val reason: String,
+        ) : Grafana {
+            override fun toDisplayString(): String = "Skipped the Grafana dashboards of $kit (${dashboards.joinToString(", ")}): $reason"
+
+            override fun isError(): Boolean = true
+        }
+
         @Serializable
         @SerialName("Grafana.AnnotationCreated")
         data class AnnotationCreated(
@@ -2978,7 +3043,8 @@ sealed interface Event {
         @Serializable
         @SerialName("Tailscale.StoppedSuccessfully")
         data object StoppedSuccessfully : Tailscale {
-            override fun toDisplayString(): String = "Tailscale stopped successfully."
+            override fun toDisplayString(): String =
+                "Tailscale stopped successfully. Cluster commands cannot reach this cluster until 'easy-db-lab tailscale start'."
         }
 
         @Serializable
@@ -5753,6 +5819,31 @@ sealed interface Event {
         ) : Compactor {
             override fun toDisplayString(): String =
                 "Account compactor kept running: ${clusterVpcs.size} other cluster(s) use the account bucket"
+        }
+    }
+
+    /**
+     * Test documents: the markdown files `report upload` stores in a test's folder, `reports/<tenant>/<name>-<id>/`,
+     * with an HTML copy of each and one `index.html` that holds them all.
+     */
+    @Serializable
+    sealed interface Report : Event {
+        /** One stored document: its file name and its S3 URI. */
+        @Serializable
+        data class StoredDocument(
+            val name: String,
+            val uri: String,
+        )
+
+        /** [documents] were stored in the test's folder and its index at [indexUri] was rebuilt. */
+        @Serializable
+        @SerialName("Report.DocumentsUploaded")
+        data class DocumentsUploaded(
+            val documents: List<StoredDocument>,
+            val indexUri: String,
+        ) : Report {
+            override fun toDisplayString(): String =
+                (documents.map { "Uploaded ${it.name} to ${it.uri}" } + "Rebuilt the test's index at $indexUri").joinToString("\n")
         }
     }
 }

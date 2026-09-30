@@ -49,6 +49,7 @@ import com.rustyrazorblade.easydblab.services.aws.AwsInfrastructureService
 import com.rustyrazorblade.easydblab.services.aws.EC2InstanceService
 import com.rustyrazorblade.easydblab.services.aws.InstanceSpecFactory
 import com.rustyrazorblade.easydblab.services.aws.OpenSearchService
+import com.rustyrazorblade.easydblab.services.documents.TestDocumentService
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.resilience4j.retry.Retry
 import org.koin.core.component.inject
@@ -113,6 +114,7 @@ class Up(
     private val commandExecutor: CommandExecutor by inject()
     private val externalIpService: ExternalIpService by inject()
     private val provisioningPreflight: ProvisioningPreflight by inject()
+    private val testDocumentService: TestDocumentService by inject()
     private val tcpReachabilityProbe: TcpReachabilityProbe by inject()
 
     // Working copy loaded during execute() - modified and saved
@@ -127,7 +129,10 @@ class Up(
     // Lock for synchronizing access to workingState from parallel threads
     private val stateLock = Any()
 
-    @CommandLine.Option(names = ["--no-setup", "-n"])
+    @CommandLine.Option(
+        names = ["--no-setup", "-n"],
+        description = ["Provision the instances only: skip instance setup, K3s, and AxonOps configuration"],
+    )
     var noSetup = false
 
     @CommandLine.Mixin
@@ -142,6 +147,7 @@ class Up(
         provisioningPreflight.verify(workingState, initConfig)
 
         accountBucketSetup.prepare(workingState)
+        testDocumentService.rebuildIndex(workingState)
         provisionInfrastructure(initConfig)
         writeConfigurationFiles()
         runNestedCommand { WriteConfig() }
@@ -709,7 +715,11 @@ class Up(
         val port = Constants.Network.SSH_PORT
         val maxAttempts = Constants.Tailscale.REACHABILITY_MAX_ATTEMPTS
 
-        val retry = Retry.of("tailnet-reachability", RetryUtil.createTailscaleReachabilityRetryConfig(tailnetRetryInterval))
+        val retry =
+            Retry.of(
+                "tailnet-reachability",
+                RetryUtil.createBooleanPollRetryConfig(Constants.Tailscale.REACHABILITY_MAX_ATTEMPTS, tailnetRetryInterval),
+            )
         retry.eventPublisher.onRetry { event ->
             val attempt = event.numberOfRetryAttempts
             eventBus.emit(Event.Tailscale.RouteWaiting(controlHost.alias, controlHost.privateIp, port, attempt, maxAttempts))

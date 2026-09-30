@@ -28,7 +28,7 @@
       "title": "",
       "options": {
         "mode": "markdown",
-        "content": "# Instance and Cloud\n\n**Is AWS throttling this instance?** No in-box counter can answer that. CloudWatch\nmeasures the machine from outside the guest, so when the hypervisor's view and the\nkernel's view disagree, the difference is something the OS cannot see.\n\n**How the two sides are joined.** CloudWatch series are keyed by instance ARN (`name`)\nand carry `tag_Name`, not `host_name`. The account also holds instances from other\nclusters with the same `tag_Name`, so every CloudWatch query is scoped with\n`and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}`. The hidden `cluster_id`\nvariable is the UUID suffix of the `cluster` label, so no cluster name is hard-coded.\nFor subtraction, `label_replace` renames `tag_Name` to `host_name`.\n\n**Resolution.** CloudWatch EC2 publishes every **5 minutes** under basic monitoring.\nThe YACE job asks for a 60-second period over a 120-second window, so most polls find\nno datapoint and the series is sparse or absent. Gaps here are a collection artefact,\nnot an idle instance; check the in-box series before concluding anything.\n\n**Scope of the CloudWatch disk counters.** `DiskReadOps` and `DiskWriteOps` cover\n**instance-store** volumes only. On an i4i that is the NVMe data disk, which is the\ndisk Cassandra uses. EBS traffic is absent from them by design.\n\nUnits: CPU in percent, `*_sum` counters converted from per-60-second sums to per-second\nrates, S3 latency in milliseconds.\n"
+        "content": "# Instance and Cloud\n\n**Is AWS throttling this instance?** No in-box counter can answer that. CloudWatch\nmeasures the machine from outside the guest, so when the hypervisor's view and the\nkernel's view disagree, the difference is something the OS cannot see.\n\n**How the two sides are joined.** CloudWatch series are keyed by instance ARN (`name`)\nand carry `tag_Name`, not `host_name`. The account also holds instances from other\nclusters with the same `tag_Name`, so every CloudWatch query is scoped with\n`and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}`. The hidden `cluster_id`\nvariable holds the UUID suffixes of the clusters the `cluster` variable selects, so no cluster name is hard-coded.\nFor subtraction, `label_replace` renames `tag_Name` to `host_name`.\n\n**Resolution.** CloudWatch EC2 publishes every **5 minutes** under basic monitoring.\nThe YACE job asks for a 60-second period over a 120-second window, so most polls find\nno datapoint and the series is sparse or absent. Gaps here are a collection artefact,\nnot an idle instance; check the in-box series before concluding anything.\n\n**Scope of the CloudWatch disk counters.** `DiskReadOps` and `DiskWriteOps` cover\n**instance-store** volumes only. On an i4i that is the NVMe data disk, which is the\ndisk Cassandra uses. EBS traffic is absent from them by design.\n\nUnits: CPU in percent, `*_sum` counters converted from per-60-second sums to per-second\nrates, S3 latency in milliseconds.\n"
       },
       "transparent": false,
       "gridPos": {
@@ -58,7 +58,7 @@
       "description": "aws_ec2_cpuutilization_average beside the kernel's own figure for the same node. The in-box form takes idle as a fraction of total across all states, which is core-count independent; system_cpu_time_seconds_total has no per-core label, so an avg-based formula would be wrong. A steady CloudWatch reading below the in-box one is the signature of steal or a hypervisor limit.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -133,11 +133,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "label_replace((aws_ec2_cpuutilization_average{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}), \"host_name\", \"$1\", \"tag_Name\", \"(.*)\")",
-          "legendFormat": "{{host_name}} CloudWatch",
+          "expr": "label_replace(label_replace((aws_ec2_cpuutilization_average{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}), \"host_name\", \"$1\", \"tag_Name\", \"(.*)\"), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} CloudWatch",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -145,11 +145,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "100 * (1 - sum by (host_name) (rate(system_cpu_time_seconds_total{host_name=~\"$host\", state=\"idle\"}[$__rate_interval])) / sum by (host_name) (rate(system_cpu_time_seconds_total{host_name=~\"$host\"}[$__rate_interval])))",
-          "legendFormat": "{{host_name}} in-box",
+          "expr": "label_replace(100 * (1 - sum by (cluster, host_name) (rate(system_cpu_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\", state=\"idle\"}[$__rate_interval])) / sum by (cluster, host_name) (rate(system_cpu_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} in-box",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -169,7 +169,7 @@
       "description": "Zero means both views agree. A persistent positive value means the guest thinks it is busier than AWS measured; a persistent negative value means AWS sees work the guest does not account for. Empty whenever the CloudWatch series has a gap, because subtraction needs both sides at the same timestamp.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -242,11 +242,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "(100 * (1 - sum by (host_name) (rate(system_cpu_time_seconds_total{host_name=~\"$host\", state=\"idle\"}[$__rate_interval])) / sum by (host_name) (rate(system_cpu_time_seconds_total{host_name=~\"$host\"}[$__rate_interval])))) - on (host_name) (sum by (host_name) (label_replace((aws_ec2_cpuutilization_average{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}), \"host_name\", \"$1\", \"tag_Name\", \"(.*)\")))",
-          "legendFormat": "{{host_name}} in-box - CloudWatch",
+          "expr": "label_replace((100 * (1 - sum by (cluster, host_name) (rate(system_cpu_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\", state=\"idle\"}[$__rate_interval])) / sum by (cluster, host_name) (rate(system_cpu_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\"}[$__rate_interval])))) - on (cluster, host_name) (sum by (cluster, host_name) (label_replace((aws_ec2_cpuutilization_average{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}), \"host_name\", \"$1\", \"tag_Name\", \"(.*)\"))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} in-box - CloudWatch",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -266,7 +266,7 @@
       "description": "CloudWatch DiskReadOps + DiskWriteOps, converted from a 60-second Sum to a per-second rate, against the kernel's system_disk_operations_total over whole NVMe devices (partitions excluded so nothing is double counted). CloudWatch covers instance-store volumes only, so root-EBS traffic shows on the in-box line and not on the CloudWatch line.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -340,11 +340,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (host_name) (label_replace(((aws_ec2_disk_read_ops_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}) + (aws_ec2_disk_write_ops_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"})) / 60, \"host_name\", \"$1\", \"tag_Name\", \"(.*)\"))",
-          "legendFormat": "{{host_name}} CloudWatch",
+          "expr": "label_replace(sum by (cluster, host_name) (label_replace(((aws_ec2_disk_read_ops_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}) + (aws_ec2_disk_write_ops_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"})) / 60, \"host_name\", \"$1\", \"tag_Name\", \"(.*)\")), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} CloudWatch",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -352,11 +352,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (host_name) (rate(system_disk_operations_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval]))",
-          "legendFormat": "{{host_name}} in-box",
+          "expr": "label_replace(sum by (cluster, host_name) (rate(system_disk_operations_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} in-box",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -376,7 +376,7 @@
       "description": "CloudWatch NetworkIn + NetworkOut against system_network_io_bytes_total on the physical NIC only (device matches en.*|eth.*), so veth, cni0, flannel and loopback traffic is excluded. Overlay traffic inflates the in-box line if you widen that filter.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -450,11 +450,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (host_name) (label_replace(((aws_ec2_network_in_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}) + (aws_ec2_network_out_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"})) / 60, \"host_name\", \"$1\", \"tag_Name\", \"(.*)\"))",
-          "legendFormat": "{{host_name}} CloudWatch",
+          "expr": "label_replace(sum by (cluster, host_name) (label_replace(((aws_ec2_network_in_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}) + (aws_ec2_network_out_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"})) / 60, \"host_name\", \"$1\", \"tag_Name\", \"(.*)\")), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} CloudWatch",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -462,11 +462,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (host_name) (rate(system_network_io_bytes_total{host_name=~\"$host\", device=~\"en.*|eth.*\"}[$__rate_interval]))",
-          "legendFormat": "{{host_name}} in-box",
+          "expr": "label_replace(sum by (cluster, host_name) (rate(system_network_io_bytes_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"en.*|eth.*\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} in-box",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -499,7 +499,7 @@
       "description": "system_disk_operation_time_seconds_total divided by system_disk_operations_total. This is the number that separates a slow device from a busy one: a node doing the same IOPS at ten times the service time is waiting on hardware, not on Cassandra. Unit: MILLISECONDS per operation. WARNING: NVMe device names are not stable across nodes. The instance-store volume is not always nvme1n1. Read this panel together with the device-to-mount-point table below before comparing two nodes by device name.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -573,11 +573,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "1000 * (sum by (host_name, device, direction) (rate(system_disk_operation_time_seconds_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])) / sum by (host_name, device, direction) (rate(system_disk_operations_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])))",
-          "legendFormat": "{{host_name}} {{device}} {{direction}}",
+          "expr": "label_replace(1000 * (sum by (cluster, host_name, device, direction) (rate(system_disk_operation_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])) / sum by (cluster, host_name, device, direction) (rate(system_disk_operations_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} {{device}} {{direction}}",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -597,7 +597,7 @@
       "description": "The slowest and fastest node for each device, and the ratio between them. The aggregation is over whatever nodes the Host variable selects, so it stays correct for any group size. A ratio far above 1 means one node is served by slower storage than its peers on the same workload.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -671,11 +671,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "1000 * max by (device, direction) (sum by (host_name, device, direction) (rate(system_disk_operation_time_seconds_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])) / sum by (host_name, device, direction) (rate(system_disk_operations_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])))",
-          "legendFormat": "{{device}} {{direction}} slowest node",
+          "expr": "label_replace(1000 * max by (cluster, device, direction) (sum by (cluster, host_name, device, direction) (rate(system_disk_operation_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])) / sum by (cluster, host_name, device, direction) (rate(system_disk_operations_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{device}} {{direction}} slowest node",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -683,11 +683,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "1000 * min by (device, direction) (sum by (host_name, device, direction) (rate(system_disk_operation_time_seconds_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])) / sum by (host_name, device, direction) (rate(system_disk_operations_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])))",
-          "legendFormat": "{{device}} {{direction}} fastest node",
+          "expr": "label_replace(1000 * min by (cluster, device, direction) (sum by (cluster, host_name, device, direction) (rate(system_disk_operation_time_seconds_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])) / sum by (cluster, host_name, device, direction) (rate(system_disk_operations_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{device}} {{direction}} fastest node",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -707,7 +707,7 @@
       "description": "system_disk_pending_operations. Service time rises with queue depth on a healthy device; service time rising while the queue stays flat points at the device or the hypervisor instead.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -781,11 +781,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by ($groupby) (system_disk_pending_operations{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"})",
-          "legendFormat": "{{$groupby}}",
+          "expr": "label_replace(sum by (cluster, $groupby) (system_disk_pending_operations{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{$groupby}}",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -805,7 +805,7 @@
       "description": "Bytes per second and operations per second from the kernel. Read these beside the service-time panels: high service time at low throughput is a device problem, high service time at saturating throughput is a capacity problem.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -892,11 +892,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by ($groupby) (rate(system_disk_io_bytes_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval]))",
-          "legendFormat": "{{$groupby}} bytes/s",
+          "expr": "label_replace(sum by (cluster, $groupby) (rate(system_disk_io_bytes_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{$groupby}} bytes/s",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -904,11 +904,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by ($groupby) (rate(system_disk_operations_total{host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval]))",
-          "legendFormat": "{{$groupby}} ops/s",
+          "expr": "label_replace(sum by (cluster, $groupby) (rate(system_disk_operations_total{cluster=~\"$cluster\", host_name=~\"$host\", device=~\"nvme[0-9]+n[0-9]+\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{$groupby}} ops/s",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -928,7 +928,7 @@
       "description": "Which physical device actually holds the data directory on each node. NVMe enumeration is assigned by the hypervisor and is NOT consistent across nodes: the large instance-store volume can appear as nvme0n1 on one node and nvme1n1 on another. Comparing two nodes by device name without checking this table compares the data disk on one against the root volume on the other. Size is the filesystem total.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -984,10 +984,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (host_name, device, mountpoint) (system_filesystem_usage_bytes{host_name=~\"$host\", mountpoint!~\"/boot.*\"})",
+          "expr": "label_replace(sum by (cluster, host_name, device, mountpoint) (system_filesystem_usage_bytes{cluster=~\"$cluster\", host_name=~\"$host\", mountpoint!~\"/boot.*\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -1000,13 +1000,15 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "cluster": true
             },
             "renameByName": {
               "host_name": "Node",
               "device": "Device",
               "mountpoint": "Mount point",
-              "Value": "Filesystem size"
+              "Value": "Filesystem size",
+              "cluster_name": "Cluster"
             }
           }
         }
@@ -1025,7 +1027,7 @@
       "description": "system_filesystem_utilization_ratio, a fraction between 0 and 1, shown as a percentage. A data mount filling up changes compaction behaviour long before it runs out.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1100,11 +1102,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (host_name, mountpoint) (system_filesystem_utilization_ratio{host_name=~\"$host\", mountpoint!~\"/boot.*\"})",
-          "legendFormat": "{{host_name}} {{mountpoint}}",
+          "expr": "label_replace(sum by (cluster, host_name, mountpoint) (system_filesystem_utilization_ratio{cluster=~\"$cluster\", host_name=~\"$host\", mountpoint!~\"/boot.*\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{host_name}} {{mountpoint}}",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1137,7 +1139,7 @@
       "description": "Straight from CloudWatch, one series per instance in this cluster. Legend uses tag_Name because CloudWatch has no host_name.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1212,11 +1214,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "(aws_ec2_cpuutilization_average{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"})",
-          "legendFormat": "{{tag_Name}}",
+          "expr": "label_replace((aws_ec2_cpuutilization_average{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{tag_Name}}",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1236,7 +1238,7 @@
       "description": "DiskReadOps and DiskWriteOps, each a 60-second Sum converted to a per-second rate. Instance-store volumes only.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1310,11 +1312,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "(aws_ec2_disk_read_ops_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}) / 60",
-          "legendFormat": "{{tag_Name}} read",
+          "expr": "label_replace((aws_ec2_disk_read_ops_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}) / 60, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{tag_Name}} read",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1322,11 +1324,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "(aws_ec2_disk_write_ops_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}) / 60",
-          "legendFormat": "{{tag_Name}} write",
+          "expr": "label_replace((aws_ec2_disk_write_ops_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}) / 60, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{tag_Name}} write",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -1346,7 +1348,7 @@
       "description": "NetworkIn and NetworkOut, converted from 60-second Sums to per-second rates. This is the figure AWS bills and throttles against, unlike the NIC counter.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1420,11 +1422,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "(aws_ec2_network_in_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}) / 60",
-          "legendFormat": "{{tag_Name}} in",
+          "expr": "label_replace((aws_ec2_network_in_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}) / 60, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{tag_Name}} in",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1432,11 +1434,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "(aws_ec2_network_out_sum{tag_Name=~\"$host\"} and on (name) aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}) / 60",
-          "legendFormat": "{{tag_Name}} out",
+          "expr": "label_replace((aws_ec2_network_out_sum{cluster=~\"$cluster\", tag_Name=~\"$host\"} and on (name) aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}) / 60, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{tag_Name}} out",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -1456,7 +1458,7 @@
       "description": "The mapping every CloudWatch panel depends on. If a node is missing here it is missing from every CloudWatch panel too, and the cause is a tag, not a metric.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1499,10 +1501,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_ec2_info{tag_ClusterId=~\"$cluster_id\"}",
+          "expr": "label_replace(aws_ec2_info{cluster=~\"$cluster\", tag_ClusterId=~\"$cluster_id\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -1537,7 +1539,8 @@
               "tag_Name": "Node",
               "tag_ServerType": "Role",
               "tag_Cluster": "Cluster",
-              "tag_ClusterId": "Cluster id"
+              "tag_ClusterId": "Cluster id",
+              "cluster_name": "Cluster"
             }
           }
         }
@@ -1585,7 +1588,7 @@
       "description": "aws_ebs_burst_balance_average. Empty on this cluster: see the note above. Falling towards zero is credit exhaustion, and it is the one thing that makes a volume abruptly slower with no change in workload.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1660,11 +1663,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_ebs_burst_balance_average",
-          "legendFormat": "{{dimension_VolumeId}}",
+          "expr": "label_replace(aws_ebs_burst_balance_average{cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dimension_VolumeId}}",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1684,7 +1687,7 @@
       "description": "aws_ebs_volume_queue_length_average. Empty on this cluster: see the note above. A queue that grows while IOPS stays flat is throttling.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1758,11 +1761,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_ebs_volume_queue_length_average",
-          "legendFormat": "{{dimension_VolumeId}}",
+          "expr": "label_replace(aws_ebs_volume_queue_length_average{cluster=~\"$cluster\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dimension_VolumeId}}",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1782,7 +1785,7 @@
       "description": "aws_ebs_volume_read_ops_sum and aws_ebs_volume_write_ops_sum, converted from 60-second Sums. Empty on this cluster: see the note above.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1856,11 +1859,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_ebs_volume_read_ops_sum / 60",
-          "legendFormat": "{{dimension_VolumeId}} read",
+          "expr": "label_replace(aws_ebs_volume_read_ops_sum{cluster=~\"$cluster\"} / 60, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dimension_VolumeId}} read",
           "range": true,
           "instant": false,
           "refId": "A"
@@ -1868,11 +1871,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_ebs_volume_write_ops_sum / 60",
-          "legendFormat": "{{dimension_VolumeId}} write",
+          "expr": "label_replace(aws_ebs_volume_write_ops_sum{cluster=~\"$cluster\"} / 60, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dimension_VolumeId}} write",
           "range": true,
           "instant": false,
           "refId": "B"
@@ -1905,7 +1908,7 @@
       "description": "CloudWatch reports these in MILLISECONDS. They exist only for buckets that have an S3 request-metrics filter configured; buckets without one are absent rather than zero. Narrow with an ad-hoc filter on dimension_BucketName.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1979,10 +1982,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_first_byte_latency_average",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_first_byte_latency_average{cluster=~\"$cluster\"})",
           "legendFormat": "{{dimension_BucketName}} first byte avg",
           "range": true,
           "instant": false,
@@ -1991,10 +1994,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_first_byte_latency_p99",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_first_byte_latency_p99{cluster=~\"$cluster\"})",
           "legendFormat": "{{dimension_BucketName}} first byte p99",
           "range": true,
           "instant": false,
@@ -2003,10 +2006,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_total_request_latency_average",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_total_request_latency_average{cluster=~\"$cluster\"})",
           "legendFormat": "{{dimension_BucketName}} total avg",
           "range": true,
           "instant": false,
@@ -2015,10 +2018,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_total_request_latency_p99",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_total_request_latency_p99{cluster=~\"$cluster\"})",
           "legendFormat": "{{dimension_BucketName}} total p99",
           "range": true,
           "instant": false,
@@ -2039,7 +2042,7 @@
       "description": "Both are 60-second Sums, converted to per-second rates. Same request-metrics caveat as the latency panel.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2126,10 +2129,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_get_requests_sum / 60",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_get_requests_sum{cluster=~\"$cluster\"} / 60)",
           "legendFormat": "{{dimension_BucketName}} GET/s",
           "range": true,
           "instant": false,
@@ -2138,10 +2141,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_bytes_downloaded_sum / 60",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_bytes_downloaded_sum{cluster=~\"$cluster\"} / 60)",
           "legendFormat": "{{dimension_BucketName}} bytes/s",
           "range": true,
           "instant": false,
@@ -2162,7 +2165,7 @@
       "description": "Scoped with aws_s3_info{tag_cluster_id=~\"$cluster_id\"}. CloudWatch publishes BucketSizeBytes and NumberOfObjects once a day, so a bucket created today has no datapoint yet and this panel is empty until the first daily roll-up.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2249,10 +2252,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_bucket_size_bytes_average and on (name) aws_s3_info{tag_cluster_id=~\"$cluster_id\"}",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_bucket_size_bytes_average{cluster=~\"$cluster\"} and on (name) aws_s3_info{cluster=~\"$cluster\", tag_cluster_id=~\"$cluster_id\"})",
           "legendFormat": "{{dimension_BucketName}} bytes",
           "range": true,
           "instant": false,
@@ -2261,10 +2264,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_number_of_objects_average and on (name) aws_s3_info{tag_cluster_id=~\"$cluster_id\"}",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_number_of_objects_average{cluster=~\"$cluster\"} and on (name) aws_s3_info{cluster=~\"$cluster\", tag_cluster_id=~\"$cluster_id\"})",
           "legendFormat": "{{dimension_BucketName}} objects",
           "range": true,
           "instant": false,
@@ -2285,7 +2288,7 @@
       "description": "Unscoped view of BucketSizeBytes across all buckets YACE discovered, so the cluster-scoped panel beside it can be told apart from a collection failure.",
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2359,10 +2362,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${metrics_datasource}"
           },
           "editorMode": "code",
-          "expr": "aws_s3_bucket_size_bytes_average",
+          "expr": "max by (name, dimension_BucketName, dimension_FilterId, dimension_StorageType) (aws_s3_bucket_size_bytes_average{cluster=~\"$cluster\"})",
           "legendFormat": "{{dimension_BucketName}}",
           "range": true,
           "instant": false,
@@ -2377,7 +2380,7 @@
       }
     }
   ],
-  "refresh": "30s",
+  "refresh": "",
   "schemaVersion": 39,
   "tags": [
     "aws",
@@ -2390,6 +2393,47 @@
   "templating": {
     "list": [
       {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metrics",
+        "multi": false,
+        "name": "metrics_datasource",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "allValue": ".+",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${metrics_datasource}"
+        },
+        "definition": "label_values(up, cluster)",
+        "description": "The clusters this dashboard shows. Clusters of one tenant share one store, so every query filters by this variable.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Cluster",
+        "multi": true,
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up, cluster)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
         "current": {
           "selected": false,
           "text": "",
@@ -2397,19 +2441,19 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "${metrics_datasource}"
         },
-        "definition": "label_values(aws_ec2_info, cluster)",
-        "description": "UUID suffix of this cluster's name, extracted by regex from the cluster label on aws_ec2_info. Every CloudWatch query is scoped by it, because the AWS account holds instances from other clusters with the same tag_Name. Hidden: it is a join key, not a control.",
+        "definition": "label_values(aws_ec2_info{cluster=~\"$cluster\"}, cluster)",
+        "description": "UUID suffixes of the selected clusters' names, extracted by regex from the cluster label on aws_ec2_info. Every CloudWatch query is scoped by them, because the AWS account holds instances from other clusters with the same tag_Name. All, the default, is every selected cluster. Hidden: it is a join key, not a control.",
         "hide": 2,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Cluster id",
-        "multi": false,
+        "multi": true,
         "name": "cluster_id",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(aws_ec2_info, cluster)",
+          "query": "label_values(aws_ec2_info{cluster=~\"$cluster\"}, cluster)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -2430,9 +2474,9 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "${metrics_datasource}"
         },
-        "definition": "label_values(system_cpu_logical_count, host_name)",
+        "definition": "label_values(system_cpu_logical_count{cluster=~\"$cluster\"}, host_name)",
         "description": "Every node the host-metrics scraper covers, which is also every node CloudWatch reports on. All expands to the explicit list; allValue is deliberately unset. CloudWatch panels match it against tag_Name, host panels against host_name.",
         "hide": 0,
         "includeAll": true,
@@ -2442,7 +2486,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(system_cpu_logical_count, host_name)",
+          "query": "label_values(system_cpu_logical_count{cluster=~\"$cluster\"}, host_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -2488,7 +2532,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "${metrics_datasource}"
         },
         "filters": [],
         "hide": 0,

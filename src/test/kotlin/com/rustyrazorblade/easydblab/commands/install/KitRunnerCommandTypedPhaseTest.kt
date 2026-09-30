@@ -1,7 +1,12 @@
 package com.rustyrazorblade.easydblab.commands.install
 
 import com.rustyrazorblade.easydblab.Constants
+import com.rustyrazorblade.easydblab.events.Event
 import com.rustyrazorblade.easydblab.services.KitMetrics
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
@@ -215,7 +220,77 @@ class KitRunnerCommandTypedPhaseTest : KitRunnerCommandTestBase() {
             """.trimIndent(),
         )
         command("mydb", "start").call()
-        verify(mockGrafanaDashboardService).installDashboard(any(), any(), any())
+        verify(mockGrafanaClient).installDashboard(any(), any(), any())
+    }
+
+    @Test
+    fun `a failure to list the tenants names every skipped dashboard and the cause`() {
+        whenever(mockObjectStore.listFiles(any(), any(), any())).thenThrow(IllegalStateException("S3 Access Denied"))
+        val kitDir = File(workingDir, "mydb").also { it.mkdirs() }
+        File(kitDir, "overview.json").writeText("{}")
+        File(kitDir, "queries.json").writeText("{}")
+        writeKitYaml(
+            "mydb",
+            """
+            name: mydb
+            dashboards:
+              - path: overview.json
+              - path: queries.json
+            start:
+              - type: shell
+                script: echo hello
+            """.trimIndent(),
+        )
+
+        val events = captureEvents { command("mydb", "start").call() }
+
+        val skipped = events.filterIsInstance<Event.Grafana.KitDashboardsSkipped>().single()
+        assertThat(skipped.kit).isEqualTo("mydb")
+        assertThat(skipped.dashboards).containsExactly("overview.json", "queries.json")
+        assertThat(skipped.reason).contains("S3 Access Denied")
+        assertThat(skipped.isError()).isTrue()
+        verify(mockGrafanaClient, never()).installDashboard(any(), any(), any())
+    }
+
+    @Test
+    fun `a shipped kit dashboard is installed with the current cluster and the stable pickers selected`() {
+        val kitDir = File(workingDir, "memcached").also { it.mkdirs() }
+        File("src/main/resources/com/rustyrazorblade/easydblab/kits/memcached/dashboards/memcached.json")
+            .copyTo(File(kitDir, "memcached.json"))
+        writeKitYaml(
+            "memcached",
+            """
+            name: memcached
+            dashboards:
+              - path: memcached.json
+            start:
+              - type: shell
+                script: echo hello
+            """.trimIndent(),
+        )
+
+        command("memcached", "start").call()
+
+        val installed = argumentCaptor<JsonObject>()
+        verify(mockGrafanaClient).installDashboard(installed.capture(), any(), eq("memcached"))
+        val current =
+            installed.firstValue
+                .getValue("templating")
+                .jsonObject
+                .getValue("list")
+                .jsonArray
+                .map { it.jsonObject }
+                .filter { it["type"]?.jsonPrimitive?.content == "datasource" || it["name"]?.jsonPrimitive?.content == "cluster" }
+                .associate {
+                    it.getValue("name").jsonPrimitive.content to
+                        it
+                            .getValue("current")
+                            .jsonObject
+                            .getValue("value")
+                            .toString()
+                }
+        assertThat(current.filterKeys { it != "cluster" }.values).isNotEmpty().allMatch { it == "\"mimir\"" }
+        assertThat(current["cluster"]).contains(clusterState.clusterLabelName())
     }
 
     /**
@@ -226,7 +301,9 @@ class KitRunnerCommandTypedPhaseTest : KitRunnerCommandTestBase() {
     @Test
     fun `an extension instance installs only its own dashboards, under its own uids, into its folder`() {
         val kitDir = File(workingDir, "postgres-duckdb/dashboards").also { it.mkdirs() }.parentFile
-        File(kitDir, "dashboards/postgres.json").writeText("""{"uid":"postgres-overview","title":"PostgreSQL Overview"}""")
+        File(kitDir, "dashboards/postgres.json").writeText(
+            """{"uid":"postgres-overview","title":"PostgreSQL Overview","links":[{"url":"/d/postgres-postgis?orgId=1"}]}""",
+        )
         File(kitDir, "dashboards/duckdb.json").writeText("""{"uid":"postgres-duckdb","title":"DuckDB"}""")
         File(kitDir, "dashboards/postgis.json").writeText("""{"uid":"postgres-postgis","title":"PostGIS"}""")
         writeKitYaml(
@@ -253,10 +330,13 @@ class KitRunnerCommandTypedPhaseTest : KitRunnerCommandTestBase() {
 
         command("postgres-duckdb", "start").call()
 
-        val installed = argumentCaptor<String>()
-        verify(mockGrafanaDashboardService, times(2)).installDashboard(installed.capture(), any(), eq("postgres-duckdb"))
-        assertThat(installed.allValues.map { Regex("\"uid\":\"([^\"]+)\"").find(it)?.groupValues?.get(1) })
+        val installed = argumentCaptor<JsonObject>()
+        verify(mockGrafanaClient, times(2)).installDashboard(installed.capture(), any(), eq("postgres-duckdb"))
+        assertThat(installed.allValues.map { it["uid"]?.jsonPrimitive?.content })
             .containsExactly("postgres-overview-duckdb", "postgres-duckdb-duckdb")
+        val overview = installed.allValues.first().toString()
+        assertThat(overview).contains("/d/postgres-postgis-postgis?orgId=1")
+        assertThat(overview).doesNotContain("/d/postgres-postgis?")
     }
 
     @Test

@@ -18,7 +18,7 @@
       "title": "Log Investigation",
       "tooltip": "Free-form log search across every service",
       "type": "link",
-      "url": "/d/log-investigation/log-investigation"
+      "url": "/d/log-investigation/log-investigation?${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${cluster:queryparam}"
     },
     {
       "asDropdown": false,
@@ -30,7 +30,7 @@
       "title": "Cassandra Overview",
       "tooltip": "Cassandra metrics for the same time range",
       "type": "link",
-      "url": "/d/cassandra-overview/cassandra-overview"
+      "url": "/d/1e7b6436-9a13-44cf-bdae-7528a9a7f537/cassandra-overview?${metrics_datasource:queryparam}&${logs_datasource:queryparam}&${cluster:queryparam}"
     }
   ],
   "liveNow": false,
@@ -44,7 +44,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Log records per interval, split by build and severity. This is what makes log volume comparable between builds. The panel deliberately ignores $severity so the whole mix stays visible; use $severity on the stream and problem panels.",
       "fieldConfig": {
         "defaults": {
@@ -70,10 +70,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (cassandra_build, severity_text) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}} {{severity_text}}",
+          "expr": "label_replace(sum by (cluster, cassandra_build, severity_text) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{severity_text}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -82,7 +82,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "WARN and ERROR records per interval by build. SEVERE and WARNING are included because the AxonOps and Digitalis agents log through java.util.logging, which uses those names.",
       "fieldConfig": {
         "defaults": {
@@ -107,10 +107,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (cassandra_build) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | severity_text=~\"WARN|WARNING|ERROR|SEVERE\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}}",
+          "expr": "label_replace(sum by (cluster, cassandra_build) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | severity_text=~\"WARN|WARNING|ERROR|SEVERE\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -119,7 +119,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Loggers ranked by record count over the dashboard time range, with WARN and ERROR counts beside them. Sort any column to re-rank.",
       "fieldConfig": {
         "defaults": {
@@ -143,25 +143,25 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "topk(25, sum by (scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" [$__range])))",
+          "expr": "label_replace(topk by (cluster) (25, sum by (cluster, scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" [$__range]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
           "legendFormat": "records",
           "queryType": "instant",
           "refId": "A"
         },
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" | severity_text=~\"WARN|WARNING\" [$__range]))",
+          "expr": "label_replace(sum by (cluster, scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" | severity_text=~\"WARN|WARNING\" [$__range])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
           "legendFormat": "warnings",
           "queryType": "instant",
           "refId": "B"
         },
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" | severity_text=~\"ERROR|SEVERE\" [$__range]))",
+          "expr": "label_replace(sum by (cluster, scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" | severity_text=~\"ERROR|SEVERE\" [$__range])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
           "legendFormat": "errors",
           "queryType": "instant",
           "refId": "C"
@@ -171,12 +171,12 @@
       "transformations": [
         { "id": "labelsToFields", "options": { "mode": "columns" } },
         { "id": "merge", "options": {} },
-        { "id": "organize", "options": { "excludeByName": { "Time": true }, "indexByName": {}, "renameByName": {} } }
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "cluster": true }, "indexByName": {}, "renameByName": { "cluster_name": "Cluster" } } }
       ],
       "type": "table"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Which loggers are producing WARN and ERROR over time. A small number of loggers carry almost all of the problem records, so this stays readable.",
       "fieldConfig": {
         "defaults": {
@@ -202,10 +202,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" | severity_text=~\"WARN|WARNING|ERROR|SEVERE\" [$__auto]))",
-          "legendFormat": "{{scope_name}}",
+          "expr": "label_replace(sum by (cluster, scope_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=~\"${logger}\" | severity_text=~\"WARN|WARNING|ERROR|SEVERE\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{scope_name}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -214,7 +214,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "The agent attaches exception.type, exception.message and exception.stacktrace to records that carry a throwable. This table counts them by type and logger; open a matching line in the stream panel below to read the stack trace.",
       "fieldConfig": {
         "defaults": {
@@ -233,9 +233,9 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "topk(20, sum by (exception_type, scope_name, cassandra_build) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | exception_type!=\"\" [$__range])))",
+          "expr": "label_replace(topk by (cluster) (20, sum by (cluster, exception_type, scope_name, cassandra_build) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | exception_type!=\"\" [$__range]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
           "legendFormat": "occurrences",
           "queryType": "instant",
           "refId": "A"
@@ -245,7 +245,8 @@
       "transformations": [
         { "id": "labelsToFields", "options": { "mode": "columns" } },
         { "id": "merge", "options": {} },
-        { "id": "organize", "options": { "excludeByName": { "Time": true }, "indexByName": {}, "renameByName": {} } }
+        { "id": "convertFieldType", "options": { "conversions": [ { "targetField": "cassandra_build", "destinationType": "string" } ], "fields": {} } },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "cluster": true }, "indexByName": {}, "renameByName": { "cluster_name": "Cluster" } } }
       ],
       "type": "table"
     },
@@ -258,7 +259,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Duration parsed out of the GCInspector line \"<collector> GC in <n>ms\", split by build and collector. Read the collector name before you compare: a series named \"... Cycles\" is a ZGC CONCURRENT phase, not a stop-the-world pause. The branch build logs those because gc_concurrent_phase_log_threshold and gc_concurrent_phase_warn_threshold are enabled on it, so it reports series the stock build never emits. Compare like with like.",
       "fieldConfig": {
         "defaults": {
@@ -284,10 +285,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "max by (cassandra_build, gc_name) (max_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.service.GCInspector\" |= \"GC in\" | unwrap gc_event_ms | __error__=\"\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}} {{gc_name}}",
+          "expr": "label_replace(max by (cluster, cassandra_build, gc_name) (max_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.service.GCInspector\" |= \"GC in\" | unwrap gc_event_ms | __error__=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{gc_name}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -296,7 +297,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "How often GCInspector logs at all, by build and collector. GCInspector only logs above its threshold, so this is a count of NOTABLE collections, not of every collection.",
       "fieldConfig": {
         "defaults": {
@@ -322,10 +323,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (cassandra_build, gc_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.service.GCInspector\" |= \"GC in\" | gc_name!=\"\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}} {{gc_name}}",
+          "expr": "label_replace(sum by (cluster, cassandra_build, gc_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.service.GCInspector\" |= \"GC in\" | gc_name!=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{gc_name}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -342,7 +343,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Completed compactions per interval, counted from the CompactionTask \"Compacted (...)\" line. Ground truth against cassandra_compaction_tasks_completed_total.",
       "fieldConfig": {
         "defaults": {
@@ -367,10 +368,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (cassandra_build) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.db.compaction.CompactionTask\" |= \"Compacted (\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}}",
+          "expr": "label_replace(sum by (cluster, cassandra_build) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.db.compaction.CompactionTask\" |= \"Compacted (\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -379,7 +380,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Longest compaction in each interval, parsed from \"... in <n>ms.  Read Throughput = ...\". Cassandra prints these durations with thousands separators, so the query strips commas before it aggregates.",
       "fieldConfig": {
         "defaults": {
@@ -405,10 +406,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "max by (cassandra_build) (max_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.db.compaction.CompactionTask\" |= \"Compacted (\" | unwrap compaction_ms | __error__=\"\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}}",
+          "expr": "label_replace(max by (cluster, cassandra_build) (max_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.db.compaction.CompactionTask\" |= \"Compacted (\" | unwrap compaction_ms | __error__=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -417,7 +418,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Mean output size as a percentage of input size, parsed from \"(~<n>% of original)\". A rising value means compaction is reclaiming less; a falling value means more overwrite or tombstone removal.",
       "fieldConfig": {
         "defaults": {
@@ -445,10 +446,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "avg by (cassandra_build) (avg_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.db.compaction.CompactionTask\" |= \"Compacted (\" | unwrap compaction_ratio_pct | __error__=\"\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}}",
+          "expr": "label_replace(avg by (cluster, cassandra_build) (avg_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.db.compaction.CompactionTask\" |= \"Compacted (\" | unwrap compaction_ratio_pct | __error__=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -465,7 +466,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Cross-node drops per message type, parsed out of the MessagingMetrics line. cassandra_messages_dropped_total gives the count only; this gives the count split into internal and cross-node, plus the latency below.",
       "fieldConfig": {
         "defaults": {
@@ -491,10 +492,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (dropped_type) (sum_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\" | unwrap dropped_cross_node | __error__=\"\" [$__auto]))",
-          "legendFormat": "{{dropped_type}}",
+          "expr": "label_replace(sum by (cluster, dropped_type) (sum_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\" | unwrap dropped_cross_node | __error__=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dropped_type}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -503,7 +504,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Internal drops per message type, from the same MessagingMetrics line. An internal drop means the node timed out its own work; a cross-node drop means a peer did.",
       "fieldConfig": {
         "defaults": {
@@ -529,10 +530,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (dropped_type) (sum_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\" | unwrap dropped_internal | __error__=\"\" [$__auto]))",
-          "legendFormat": "{{dropped_type}}",
+          "expr": "label_replace(sum by (cluster, dropped_type) (sum_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\" | unwrap dropped_internal | __error__=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dropped_type}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -541,7 +542,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Mean cross-node latency of the dropped messages, by type. This is the number the metric cannot give you: how late the message already was when it was thrown away.",
       "fieldConfig": {
         "defaults": {
@@ -567,10 +568,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "max by (dropped_type) (max_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\" | unwrap dropped_cross_node_ms | __error__=\"\" [$__auto]))",
-          "legendFormat": "{{dropped_type}}",
+          "expr": "label_replace(max by (cluster, dropped_type) (max_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\" | unwrap dropped_cross_node_ms | __error__=\"\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{dropped_type}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -579,7 +580,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "The raw drop lines, so you can read the exact numbers and the node that reported them.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
       "id": 33,
@@ -595,7 +596,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
           "expr": "{cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" |= \"messages were dropped\"",
           "queryType": "range",
@@ -614,7 +615,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "How often StatusLogger dumps thread-pool and memtable state, counted from its \"Pool Name\" header line. Cassandra only does this when it is unhappy, so the firing rate alone is a pressure signal.",
       "fieldConfig": {
         "defaults": {
@@ -640,10 +641,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (cassandra_build, host_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.utils.StatusLogger\" |= \"Pool Name\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}} {{host_name}}",
+          "expr": "label_replace(sum by (cluster, cassandra_build, host_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.utils.StatusLogger\" |= \"Pool Name\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{host_name}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -652,7 +653,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "Total StatusLogger lines. One dump is many lines, one per pool, table and cache, so this tracks the volume the dumps add to the log.",
       "fieldConfig": {
         "defaults": {
@@ -677,10 +678,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (cassandra_build, host_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.utils.StatusLogger\" [$__auto]))",
-          "legendFormat": "{{cassandra_build}} {{host_name}}",
+          "expr": "label_replace(sum by (cluster, cassandra_build, host_name) (count_over_time({cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | scope_name=\"org.apache.cassandra.utils.StatusLogger\" [$__auto])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{host_name}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -697,7 +698,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
       "description": "Client request latency at ${percentile}, in milliseconds, by build and operation. The metric is emitted in microseconds, so the query divides by 1000 and the panel unit stays short. max by () reports the worst node in each build group, which is correct for any group size.",
       "fieldConfig": {
         "defaults": {
@@ -723,10 +724,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
           "editorMode": "code",
-          "expr": "max by (cassandra_build, cassandra_operation) (cassandra_client_request_latency_${percentile}_microseconds{host_name=~\"$host\", cassandra_build=~\"$build\"}) / 1000",
-          "legendFormat": "{{cassandra_build}} {{cassandra_operation}}",
+          "expr": "label_replace(max by (cluster, cassandra_build, cassandra_operation) (cassandra_client_request_latency_${percentile}_microseconds{cluster=~\"$cluster\", host_name=~\"$host\", cassandra_build=~\"$build\"}) / 1000, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{cassandra_operation}}",
           "range": true,
           "refId": "A"
         }
@@ -735,7 +736,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
       "description": "Dropped messages per second from the metric, by type. The > 0 filter removes the ninety-odd verb types that never drop, so only the types that are actually dropping appear. Read this beside the log panels above, which carry the reason.",
       "fieldConfig": {
         "defaults": {
@@ -761,10 +762,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
           "editorMode": "code",
-          "expr": "sum by (message_type) (rate(cassandra_messages_dropped_total{host_name=~\"$host\", cassandra_build=~\"$build\"}[$__rate_interval])) > 0",
-          "legendFormat": "{{message_type}}",
+          "expr": "label_replace(sum by (cluster, message_type) (rate(cassandra_messages_dropped_total{cluster=~\"$cluster\", host_name=~\"$host\", cassandra_build=~\"$build\"}[$__rate_interval])) > 0, \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{message_type}}",
           "range": true,
           "refId": "A"
         }
@@ -773,7 +774,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
       "description": "Stop-the-world GC time as a percentage of wall time, by build. jvm_gc_name!~\".*Cycles\" excludes the ZGC concurrent cycles; without it a ZGC build looks worse than a G1 build, which is backwards.",
       "fieldConfig": {
         "defaults": {
@@ -800,10 +801,10 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
           "editorMode": "code",
-          "expr": "100 * sum by (cassandra_build, host_name) (rate(jvm_gc_duration_seconds_sum{jvm_gc_name!~\".*Cycles\", host_name=~\"$host\", cassandra_build=~\"$build\"}[$__rate_interval]))",
-          "legendFormat": "{{cassandra_build}} {{host_name}}",
+          "expr": "label_replace(100 * sum by (cluster, cassandra_build, host_name) (rate(jvm_gc_duration_seconds_sum{cluster=~\"$cluster\", jvm_gc_name!~\".*Cycles\", host_name=~\"$host\", cassandra_build=~\"$build\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{cassandra_build}} {{host_name}}",
           "range": true,
           "refId": "A"
         }
@@ -812,7 +813,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${logs_datasource}" },
       "description": "The log lines for the same window as the three metric panels above, filtered by $build, $host, $severity and $logger. Type a regular expression in the Search box to narrow further, for example: timeout. The records carry no trace_id or span_id, so there is no link to Tempo from here.",
       "gridPos": { "h": 16, "w": 24, "x": 0, "y": 78 },
       "id": 53,
@@ -828,7 +829,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "loki" },
+          "datasource": { "type": "loki", "uid": "${logs_datasource}" },
           "editorMode": "code",
           "expr": "{cluster=~\"$cluster\", service_name=\"cassandra\", host_name=~\"${host:pipe}\"} | cassandra_build=~\"${build:pipe}\" | severity_text=~\"${severity:pipe}\" | scope_name=~\"${logger}\" |~ \"(?i)${search}\"",
           "queryType": "range",
@@ -839,16 +840,46 @@
       "type": "logs"
     }
   ],
-  "refresh": "30s",
+  "refresh": "",
   "schemaVersion": 38,
   "style": "dark",
   "tags": ["cassandra", "logs", "otel"],
   "templating": {
     "list": [
       {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metrics",
+        "multi": false,
+        "name": "metrics_datasource",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Logs",
+        "multi": false,
+        "name": "logs_datasource",
+        "options": [],
+        "query": "loki",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
         "allValue": ".+",
         "current": {},
-        "datasource": { "type": "prometheus", "uid": "mimir" },
+        "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
         "definition": "label_values(up, cluster)",
         "description": "Clusters of this tenant. All is .+ because Loki refuses a stream selector that matches an empty value.",
         "hide": 0,
@@ -863,15 +894,15 @@
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
-        "regex": "",
+        "regex": "/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       },
       {
         "current": {},
-        "datasource": { "type": "prometheus", "uid": "mimir" },
-        "definition": "label_values(cassandra_storage_load_bytes, cassandra_build)",
+        "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
+        "definition": "label_values(cassandra_storage_load_bytes{cluster=~\"$cluster\"}, cassandra_build)",
         "description": "Cassandra build. The same label exists on the metrics and on the log records, so this filters both.",
         "hide": 0,
         "includeAll": true,
@@ -881,7 +912,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(cassandra_storage_load_bytes, cassandra_build)",
+          "query": "label_values(cassandra_storage_load_bytes{cluster=~\"$cluster\"}, cassandra_build)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -892,8 +923,8 @@
       },
       {
         "current": {},
-        "datasource": { "type": "prometheus", "uid": "mimir" },
-        "definition": "label_values(cassandra_storage_load_bytes, host_name)",
+        "datasource": { "type": "prometheus", "uid": "${metrics_datasource}" },
+        "definition": "label_values(cassandra_storage_load_bytes{cluster=~\"$cluster\"}, host_name)",
         "description": "Database nodes only. No allValue is set on purpose, so All expands to the real node list instead of a wildcard.",
         "hide": 0,
         "includeAll": true,
@@ -903,7 +934,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(cassandra_storage_load_bytes, host_name)",
+          "query": "label_values(cassandra_storage_load_bytes{cluster=~\"$cluster\"}, host_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -995,7 +1026,7 @@
         "type": "textbox"
       },
       {
-        "datasource": { "type": "loki", "uid": "loki" },
+        "datasource": { "type": "loki", "uid": "${logs_datasource}" },
         "filters": [],
         "hide": 0,
         "label": "Ad-hoc filters",

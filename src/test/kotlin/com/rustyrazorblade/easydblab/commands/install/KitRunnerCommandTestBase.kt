@@ -13,12 +13,15 @@ import com.rustyrazorblade.easydblab.events.EventBus
 import com.rustyrazorblade.easydblab.events.EventEnvelope
 import com.rustyrazorblade.easydblab.events.EventListener
 import com.rustyrazorblade.easydblab.kubernetes.KubernetesService
+import com.rustyrazorblade.easydblab.services.DashboardInstallContextFactory
 import com.rustyrazorblade.easydblab.services.DefaultKitEndpointResolver
-import com.rustyrazorblade.easydblab.services.GrafanaDashboardService
+import com.rustyrazorblade.easydblab.services.GrafanaClient
 import com.rustyrazorblade.easydblab.services.KitEndpointResolver
 import com.rustyrazorblade.easydblab.services.KitHookExecutor
 import com.rustyrazorblade.easydblab.services.KitWorkloadProbe
 import com.rustyrazorblade.easydblab.services.MetricsRegistryService
+import com.rustyrazorblade.easydblab.services.ObjectStore
+import com.rustyrazorblade.easydblab.services.TenantDirectory
 import com.rustyrazorblade.easydblab.services.WorkloadStepExecutor
 import org.junit.jupiter.api.BeforeEach
 import org.koin.core.module.Module
@@ -39,11 +42,12 @@ import java.time.Duration
  */
 abstract class KitRunnerCommandTestBase : BaseKoinTest() {
     protected val mockClusterStateManager: ClusterStateManager = mock()
-    protected val mockGrafanaDashboardService: GrafanaDashboardService = mock()
+    protected val mockGrafanaClient: GrafanaClient = mock()
     protected val mockWorkloadStepExecutor: WorkloadStepExecutor = mock()
     protected val mockMetricsRegistryService: MetricsRegistryService = mock()
     protected val mockKitHookExecutor: KitHookExecutor = mock()
     protected val mockKubeService: KubernetesService = mock()
+    protected val mockObjectStore: ObjectStore = mock()
 
     protected lateinit var workingDir: File
 
@@ -82,7 +86,8 @@ abstract class KitRunnerCommandTestBase : BaseKoinTest() {
         listOf(
             module {
                 single<ClusterStateManager> { mockClusterStateManager }
-                single<GrafanaDashboardService> { mockGrafanaDashboardService }
+                single<GrafanaClient> { mockGrafanaClient }
+                single { DashboardInstallContextFactory(TenantDirectory(mockObjectStore)) }
                 single<WorkloadStepExecutor> { mockWorkloadStepExecutor }
                 single<MetricsRegistryService> { mockMetricsRegistryService }
                 single<KitHookExecutor> { mockKitHookExecutor }
@@ -94,7 +99,7 @@ abstract class KitRunnerCommandTestBase : BaseKoinTest() {
     @BeforeEach
     fun setup() {
         whenever(mockClusterStateManager.load()).thenReturn(clusterState)
-        whenever(mockGrafanaDashboardService.installDashboard(any(), any(), any())).thenReturn(Result.success(Unit))
+        whenever(mockGrafanaClient.installDashboard(any(), any(), any())).thenReturn(Result.success(Unit))
         whenever(mockWorkloadStepExecutor.execute(any(), any(), any())).thenReturn(Result.success(Unit))
         whenever(mockMetricsRegistryService.register(any(), any(), any())).thenReturn(Result.success(Unit))
         whenever(mockMetricsRegistryService.deregister(any(), any())).thenReturn(Result.success(Unit))

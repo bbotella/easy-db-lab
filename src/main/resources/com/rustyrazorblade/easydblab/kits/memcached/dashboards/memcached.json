@@ -10,7 +10,7 @@
   "schemaVersion": 38,
   "version": 1,
   "editable": true,
-  "refresh": "15s",
+  "refresh": "",
   "time": {
     "from": "now-1h",
     "to": "now"
@@ -35,15 +35,12 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "text": "Mimir",
-          "value": "mimir"
-        },
+        "current": {},
         "hide": 0,
         "includeAll": false,
-        "label": "Datasource",
+        "label": "Metrics",
         "multi": false,
-        "name": "datasource",
+        "name": "metrics_datasource",
         "options": [],
         "query": "prometheus",
         "refresh": 1,
@@ -53,17 +50,18 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${metrics_datasource}"
         },
-        "definition": "label_values(memcached_up{job=\"memcached\"}, cluster)",
+        "definition": "label_values(up, cluster)",
         "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Cluster",
-        "multi": false,
+        "multi": true,
         "name": "cluster",
+        "regex": "/^(?<value>(?<text>.+?)(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/",
         "options": [],
         "query": {
-          "query": "label_values(memcached_up{job=\"memcached\"}, cluster)",
+          "query": "label_values(up, cluster)",
           "refId": "A"
         },
         "refresh": 2,
@@ -77,7 +75,7 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${metrics_datasource}"
         },
         "definition": "label_values(memcached_up{job=\"memcached\", cluster=~\"$cluster.*\"}, instance)",
         "hide": 0,
@@ -116,7 +114,7 @@
       "description": "memcached instances the exporter can reach (memcached_up)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -161,8 +159,8 @@
       },
       "targets": [
         {
-          "expr": "sum(memcached_up{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "up",
+          "expr": "label_replace(sum by (cluster) (memcached_up{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} up",
           "refId": "A"
         }
       ]
@@ -173,7 +171,7 @@
       "description": "Time since memcached started (lowest across instances)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -214,8 +212,8 @@
       },
       "targets": [
         {
-          "expr": "min(memcached_uptime_seconds_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "uptime",
+          "expr": "label_replace(min by (cluster) (memcached_uptime_seconds_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} uptime",
           "refId": "A"
         }
       ]
@@ -226,7 +224,7 @@
       "description": "RAM memcached has allocated for slab pages (memcached_malloced_bytes) as a share of the configured cache size (--memory). Item values moved to extstore on flash are not counted.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -277,8 +275,8 @@
       },
       "targets": [
         {
-          "expr": "100 * sum(memcached_malloced_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}) / sum(memcached_limit_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "used",
+          "expr": "label_replace(100 * sum by (cluster) (memcached_malloced_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}) / sum by (cluster) (memcached_limit_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} used",
           "refId": "A"
         }
       ]
@@ -289,7 +287,7 @@
       "description": "Items currently stored",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -330,8 +328,8 @@
       },
       "targets": [
         {
-          "expr": "sum(memcached_current_items{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "items",
+          "expr": "label_replace(sum by (cluster) (memcached_current_items{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} items",
           "refId": "A"
         }
       ]
@@ -342,7 +340,7 @@
       "description": "get hits / (get hits + get misses) over the rate window",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -394,8 +392,8 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])) / sum(rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\"}[$__rate_interval]))",
-          "legendFormat": "hit ratio",
+          "expr": "label_replace(sum by (cluster) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])) / sum by (cluster) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} hit ratio",
           "refId": "A"
         }
       ]
@@ -406,7 +404,7 @@
       "description": "Open client connections",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -447,8 +445,8 @@
       },
       "targets": [
         {
-          "expr": "sum(memcached_current_connections{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "connections",
+          "expr": "label_replace(sum by (cluster) (memcached_current_connections{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} connections",
           "refId": "A"
         }
       ]
@@ -471,7 +469,7 @@
       "description": "Commands processed per second, by command (all statuses)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -504,8 +502,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(command) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "{{command}}",
+          "expr": "label_replace(sum by(cluster, command) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{command}}",
           "refId": "A"
         }
       ]
@@ -516,7 +514,7 @@
       "description": "get commands per second split by hit and miss",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -549,8 +547,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(status) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\"}[$__rate_interval]))",
-          "legendFormat": "{{status}}",
+          "expr": "label_replace(sum by(cluster, status) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{status}}",
           "refId": "A"
         }
       ]
@@ -561,7 +559,7 @@
       "description": "get hits / (get hits + get misses) per instance",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -596,8 +594,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])) / sum by(instance) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])) / sum by(cluster, instance) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{instance}}",
           "refId": "A"
         }
       ]
@@ -608,7 +606,7 @@
       "description": "Commands per second for every command/status pair the exporter reports",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -641,8 +639,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(command, status) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "{{command}} {{status}}",
+          "expr": "label_replace(sum by(cluster, command, status) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{command}} {{status}}",
           "refId": "A"
         }
       ]
@@ -665,7 +663,7 @@
       "description": "RAM used is the memory memcached has allocated for slab pages (memcached_malloced_bytes); it cannot exceed the limit (--memory). Item bytes is the full size of every stored item (memcached_current_bytes), including values moved to extstore on flash, so with extstore on it can be far above the limit.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -699,18 +697,18 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (memcached_current_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "item bytes (RAM + flash) {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_current_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} item bytes (RAM + flash) {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (memcached_malloced_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "RAM used {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_malloced_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} RAM used {{instance}}",
           "refId": "B"
         },
         {
-          "expr": "sum by(instance) (memcached_limit_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "limit {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_limit_bytes{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} limit {{instance}}",
           "refId": "C"
         }
       ]
@@ -721,7 +719,7 @@
       "description": "Items currently stored, per instance",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -755,8 +753,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (memcached_current_items{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "{{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_current_items{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{instance}}",
           "refId": "A"
         }
       ]
@@ -767,7 +765,7 @@
       "description": "Rate of items stored (memcached_items_total)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -800,8 +798,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_items_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_items_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{instance}}",
           "refId": "A"
         }
       ]
@@ -812,7 +810,7 @@
       "description": "Valid items evicted to free memory, and expired items whose memory was reused, per second",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -845,13 +843,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_items_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "evicted {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_items_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} evicted {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_items_reclaimed_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "reclaimed {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_items_reclaimed_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} reclaimed {{instance}}",
           "refId": "B"
         }
       ]
@@ -874,7 +872,7 @@
       "description": "Open connections against the connection limit",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -908,13 +906,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (memcached_current_connections{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "current {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_current_connections{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} current {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (memcached_max_connections{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "max {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_max_connections{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} max {{instance}}",
           "refId": "B"
         }
       ]
@@ -925,7 +923,7 @@
       "description": "New connections accepted per second, and connections rejected at the limit",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -958,13 +956,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_connections_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "accepted {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_connections_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} accepted {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_connections_rejected_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "rejected {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_connections_rejected_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} rejected {{instance}}",
           "refId": "B"
         }
       ]
@@ -975,7 +973,7 @@
       "description": "Bytes read from and written to clients per second",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1008,13 +1006,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_read_bytes_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "read {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_read_bytes_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} read {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_written_bytes_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "written {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_written_bytes_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} written {{instance}}",
           "refId": "B"
         }
       ]
@@ -1025,7 +1023,7 @@
       "description": "CPU seconds per second used by the memcached process, split by user and system",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1059,13 +1057,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_process_user_cpu_seconds_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "user {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_process_user_cpu_seconds_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} user {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_process_system_cpu_seconds_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "system {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_process_system_cpu_seconds_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} system {{instance}}",
           "refId": "B"
         }
       ]
@@ -1076,7 +1074,7 @@
       "description": "Connections that yielded after the per-event request limit, and times the listener was disabled at the connection limit, per second",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1109,13 +1107,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_connections_yielded_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "yielded {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_connections_yielded_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} yielded {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_connections_listener_disabled_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "listener disabled {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_connections_listener_disabled_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} listener disabled {{instance}}",
           "refId": "B"
         }
       ]
@@ -1138,7 +1136,7 @@
       "description": "Items stored in each slab class",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1172,8 +1170,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(slab) (memcached_slab_current_items{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "slab {{slab}}",
+          "expr": "label_replace(sum by(cluster, slab) (memcached_slab_current_items{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} slab {{slab}}",
           "refId": "A"
         }
       ]
@@ -1184,7 +1182,7 @@
       "description": "Bytes requested for items in each slab class",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1218,8 +1216,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(slab) (memcached_slab_mem_requested_bytes_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "slab {{slab}}",
+          "expr": "label_replace(sum by(cluster, slab) (memcached_slab_mem_requested_bytes_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} slab {{slab}}",
           "refId": "A"
         }
       ]
@@ -1230,7 +1228,7 @@
       "description": "Chunks holding items and free chunks in each slab class",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1264,13 +1262,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(slab) (memcached_slab_chunks_used{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "used slab {{slab}}",
+          "expr": "label_replace(sum by(cluster, slab) (memcached_slab_chunks_used{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} used slab {{slab}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(slab) (memcached_slab_chunks_free{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "free slab {{slab}}",
+          "expr": "label_replace(sum by(cluster, slab) (memcached_slab_chunks_free{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} free slab {{slab}}",
           "refId": "B"
         }
       ]
@@ -1281,7 +1279,7 @@
       "description": "Items evicted from each slab class per second",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1314,8 +1312,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(slab) (rate(memcached_slab_items_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "slab {{slab}}",
+          "expr": "label_replace(sum by(cluster, slab) (rate(memcached_slab_items_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} slab {{slab}}",
           "refId": "A"
         }
       ]
@@ -1338,7 +1336,7 @@
       "description": "Bytes written to and read from extstore on flash per second. No data when memcached runs without extstore (--extstore-size not set).",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1371,13 +1369,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_bytes_written_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "written {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_bytes_written_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} written {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_bytes_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "read {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_bytes_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} read {{instance}}",
           "refId": "B"
         }
       ]
@@ -1388,7 +1386,7 @@
       "description": "Items written to and read from extstore per second. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1421,13 +1419,13 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_objects_written_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "written {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_objects_written_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} written {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "read {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} read {{instance}}",
           "refId": "B"
         }
       ]
@@ -1438,7 +1436,7 @@
       "description": "Get hits served from RAM and from extstore, and get misses, per second. Flash hits are items read from extstore; RAM hits are the remaining get hits. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1471,18 +1469,18 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "flash hits",
+          "expr": "label_replace(sum by (cluster) (rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} flash hits",
           "refId": "A"
         },
         {
-          "expr": "clamp_min(sum(rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])) - sum(rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), 0)",
-          "legendFormat": "RAM hits",
+          "expr": "label_replace(clamp_min(sum by (cluster) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])) - sum by (cluster) (rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} RAM hits",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"miss\"}[$__rate_interval])) and on() sum(memcached_extstore_bytes_limit{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "misses",
+          "expr": "label_replace(sum by (cluster) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"miss\"}[$__rate_interval])) and on (cluster) sum by (cluster) (memcached_extstore_bytes_limit{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} misses",
           "refId": "C"
         }
       ]
@@ -1493,7 +1491,7 @@
       "description": "Items read from extstore as a fraction of all get hits. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1528,8 +1526,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])) / sum by(instance) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_objects_read_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])) / sum by(cluster, instance) (rate(memcached_commands_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\", command=\"get\", status=\"hit\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{instance}}",
           "refId": "A"
         }
       ]
@@ -1540,7 +1538,7 @@
       "description": "Bytes holding items in extstore, bytes in allocated pages not holding an item, and the extstore size. memcached_extstore_bytes_used_total is a gauge despite its suffix. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1573,18 +1571,18 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (memcached_extstore_bytes_used_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "used {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_bytes_used_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} used {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (memcached_extstore_bytes_fragmented{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "fragmented {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_bytes_fragmented{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} fragmented {{instance}}",
           "refId": "B"
         },
         {
-          "expr": "sum by(instance) (memcached_extstore_bytes_limit{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "limit {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_bytes_limit{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} limit {{instance}}",
           "refId": "C"
         }
       ]
@@ -1595,7 +1593,7 @@
       "description": "Extstore pages holding at least one item and pages still free, with the number of items stored in extstore. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1641,18 +1639,18 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (memcached_extstore_pages_used{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "pages used {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_pages_used{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} pages used {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (memcached_extstore_pages_free{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "pages free {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_pages_free{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} pages free {{instance}}",
           "refId": "B"
         },
         {
-          "expr": "sum by(instance) (memcached_extstore_objects_used{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "objects {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_objects_used{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} objects {{instance}}",
           "refId": "C"
         }
       ]
@@ -1663,7 +1661,7 @@
       "description": "Extstore pages allocated, evicted to free space, and reclaimed once empty, per second. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1696,18 +1694,18 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_pages_allocated_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "allocated {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_pages_allocated_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} allocated {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_pages_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "evicted {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_pages_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} evicted {{instance}}",
           "refId": "B"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_pages_reclaimed_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "reclaimed {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_pages_reclaimed_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} reclaimed {{instance}}",
           "refId": "C"
         }
       ]
@@ -1718,7 +1716,7 @@
       "description": "Items evicted from extstore to free space, and items rescued, skipped, or lost during compaction, per second. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1751,23 +1749,23 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_objects_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "evicted {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_objects_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} evicted {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_compact_rescued_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "compaction rescued {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_compact_rescued_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} compaction rescued {{instance}}",
           "refId": "B"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_compact_skipped_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "compaction skipped {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_compact_skipped_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} compaction skipped {{instance}}",
           "refId": "C"
         },
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_compact_lost_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "compaction lost {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_compact_lost_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} compaction lost {{instance}}",
           "refId": "D"
         }
       ]
@@ -1778,7 +1776,7 @@
       "description": "Bytes evicted from extstore to free space per second. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1811,8 +1809,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (rate(memcached_extstore_bytes_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "evicted {{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (rate(memcached_extstore_bytes_evicted_total{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}[$__rate_interval])), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} evicted {{instance}}",
           "refId": "A"
         }
       ]
@@ -1823,7 +1821,7 @@
       "description": "Items waiting in the extstore IO queue. No data when extstore is off.",
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${metrics_datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1856,8 +1854,8 @@
       },
       "targets": [
         {
-          "expr": "sum by(instance) (memcached_extstore_io_queue_depth{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"})",
-          "legendFormat": "{{instance}}",
+          "expr": "label_replace(sum by(cluster, instance) (memcached_extstore_io_queue_depth{job=\"memcached\", cluster=~\"$cluster.*\", instance=~\"$instance\"}), \"cluster_name\", \"$1\", \"cluster\", \"(.+-[0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\")",
+          "legendFormat": "{{cluster_name}} {{instance}}",
           "refId": "A"
         }
       ]

@@ -6,7 +6,14 @@ import com.rustyrazorblade.easydblab.YamlTestSupport.listAt
 import com.rustyrazorblade.easydblab.YamlTestSupport.scalarAt
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.ClusterStateManager
+import com.rustyrazorblade.easydblab.configuration.grafana.DashboardFiles
 import com.rustyrazorblade.easydblab.services.TemplateService
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -63,13 +70,84 @@ class MimirManifestBuilderTest : BaseKoinTest() {
         assertThat(modules).doesNotContain("compactor", "all")
     }
 
+    /**
+     * Measured on one Mimir process (issue 988): sharding split each query into about 20 parts, and
+     * readers kept opening merged blocks' sources for up to an hour after their deletion marks.
+     */
     @Test
-    fun `queries read the ingester and the whole store, and local blocks are kept for 2 hours`() {
+    fun `queries are not sharded and stop reading merged-away blocks soon after their deletion marks`() {
+        val yaml = config()
+
+        assertThat(scalarAt(yaml, "limits", "query_sharding_total_shards")).isEqualTo("0")
+        assertThat(scalarAt(yaml, "blocks_storage", "bucket_store", "ignore_deletion_mark_delay")).isEqualTo("10m")
+        assertThat(scalarAt(yaml, "blocks_storage", "bucket_store", "ignore_deletion_mark_while_querying_delay")).isEqualTo("5m")
+    }
+
+    /**
+     * Measured on qa971f (issue 988): without caches every dashboard refresh read the same index,
+     * chunks and results from S3 again, and 23% of Mimir's CPU went to new TLS connections to S3.
+     */
+    @Test
+    fun `the store-gateway and the query-frontend cache in the memcached sidecar, and S3 connections are reused`() {
+        val yaml = config()
+        val memcached = "127.0.0.1:${Constants.K8s.MIMIR_MEMCACHED_PORT}"
+
+        listOf("index_cache", "chunks_cache", "metadata_cache").forEach { cache ->
+            assertThat(scalarAt(yaml, "blocks_storage", "bucket_store", cache, "backend")).describedAs(cache).isEqualTo("memcached")
+            assertThat(
+                scalarAt(yaml, "blocks_storage", "bucket_store", cache, "memcached", "addresses"),
+            ).describedAs(cache).isEqualTo(memcached)
+        }
+        assertThat(scalarAt(yaml, "frontend", "cache_results")).isEqualTo("true")
+        // At the 7-day default a result cached while the compactor lagged kept its gap for days.
+        assertThat(scalarAt(yaml, "limits", "results_cache_ttl")).isEqualTo("1h")
+        assertThat(scalarAt(yaml, "frontend", "results_cache", "backend")).isEqualTo("memcached")
+        assertThat(scalarAt(yaml, "frontend", "results_cache", "memcached", "addresses")).isEqualTo(memcached)
+        assertThat(scalarAt(yaml, "blocks_storage", "s3", "http", "idle_conn_timeout")).isEqualTo("10m")
+        assertThat(scalarAt(yaml, "blocks_storage", "s3", "http", "max_idle_connections")).isEqualTo("0")
+        assertThat(scalarAt(yaml, "blocks_storage", "s3", "http", "max_idle_connections_per_host")).isEqualTo("1000")
+        // Entries that change as data lands expire under the 1m bucket store sync, so the store-gateway
+        // loads a new block or tenant before a query asks for it; the bucket index's 5m default failed
+        // 105 of 2,186 consistency checks on qa971f.
+        listOf("bucket_index_content_ttl", "tenants_list_ttl", "tenant_blocks_list_ttl", "metafile_doesnt_exist_ttl").forEach { ttl ->
+            assertThat(scalarAt(yaml, "blocks_storage", "bucket_store", "metadata_cache", ttl)).describedAs(ttl).isEqualTo("30s")
+        }
+        // Mimir 3.2.1 refuses to start with the query engine's range vector splitting cache.
+        assertThat(yaml).doesNotContain("range_vector_splitting")
+    }
+
+    @Test
+    fun `a memcached sidecar listens on the control node's loopback, after the Mimir container`() {
+        val pod = pod()
+        val memcached = pod.containers.single { it.name == "memcached" }
+
+        assertThat(pod.containers.first().name).isEqualTo(Constants.K8s.MIMIR_APP_LABEL)
+        assertThat(memcached.image).isEqualTo("memcached:1.6.34-alpine")
+        assertThat(memcached.args).containsExactly(
+            "-m",
+            "2048",
+            "-I",
+            "1m",
+            "-c",
+            "4096",
+            "-t",
+            "4",
+            "-l",
+            "127.0.0.1",
+            "-p",
+            "${Constants.K8s.MIMIR_MEMCACHED_PORT}",
+        )
+        assertThat(memcached.resources?.limits.orEmpty()).isEmpty()
+        assertThat(memcached.resources?.requests.orEmpty()).isEmpty()
+    }
+
+    @Test
+    fun `queries read the ingester and the whole store, and local blocks are kept for 15 minutes`() {
         val yaml = config()
 
         assertThat(scalarAt(yaml, "limits", "query_ingesters_within")).isEqualTo("0")
         assertThat(scalarAt(yaml, "querier", "query_store_after")).isEqualTo("0")
-        assertThat(scalarAt(yaml, "blocks_storage", "tsdb", "retention_period")).isEqualTo("2h")
+        assertThat(scalarAt(yaml, "blocks_storage", "tsdb", "retention_period")).isEqualTo("15m")
         assertThat(scalarAt(yaml, "blocks_storage", "bucket_store", "sync_interval")).isEqualTo("1m")
         assertThat(scalarAt(yaml, "blocks_storage", "bucket_store", "ignore_blocks_within")).isEqualTo("0")
         // A stopped compactor leaves the bucket index stale; that must never fail a query.
@@ -121,6 +199,37 @@ class MimirManifestBuilderTest : BaseKoinTest() {
         assertThat(scalarAt(yaml, "limits", "max_label_names_per_series")?.toInt()).isGreaterThan(DEFAULT_LABEL_NAMES)
     }
 
+    /**
+     * The queries one load of [dashboard] sends: the targets of every top-level panel and every query
+     * variable. A collapsed row keeps its panels inside it and loads none of them until it is opened.
+     */
+    private fun queriesPerLoad(dashboard: JsonObject): Int {
+        val targets =
+            dashboard["panels"]
+                ?.jsonArray
+                .orEmpty()
+                .sumOf { (it.jsonObject["targets"] as? JsonArray)?.size ?: 0 }
+        val variables =
+            dashboard["templating"]
+                ?.jsonObject
+                ?.get("list")
+                ?.jsonArray
+                .orEmpty()
+                .count { it.jsonObject["type"]?.jsonPrimitive?.content == "query" }
+        return targets + variables
+    }
+
+    @Test
+    fun `the query queue holds two full loads of the heaviest dashboard`() {
+        // The query-frontend splits each query and schedules at most max_query_parallelism parts of it
+        // at once; the scheduler rejects a tenant's request with 429 past its outstanding limit.
+        val heaviest = DashboardFiles.all().maxOf { queriesPerLoad(Json.parseToJsonElement(it.readText()).jsonObject) }
+        val limit = scalarAt(config(), "query_scheduler", "max_outstanding_requests_per_tenant")?.toInt()
+
+        assertThat(scalarAt(config(), "limits", "max_query_parallelism")).describedAs("query parallelism stays at its default").isNull()
+        assertThat(limit).isGreaterThanOrEqualTo(2 * heaviest * DEFAULT_MAX_QUERY_PARALLELISM)
+    }
+
     @Test
     fun `rings live in memory with one replica`() {
         val yaml = config()
@@ -169,5 +278,8 @@ class MimirManifestBuilderTest : BaseKoinTest() {
     private companion object {
         const val DEFAULT_INGESTION_RATE = 10_000.0
         const val DEFAULT_LABEL_NAMES = 30
+
+        /** Mimir's default `limits.max_query_parallelism`. */
+        const val DEFAULT_MAX_QUERY_PARALLELISM = 14
     }
 }

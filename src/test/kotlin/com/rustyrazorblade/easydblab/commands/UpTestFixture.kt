@@ -25,7 +25,7 @@ import com.rustyrazorblade.easydblab.services.CiliumService
 import com.rustyrazorblade.easydblab.services.ClusterConfigurationService
 import com.rustyrazorblade.easydblab.services.ClusterProvisioningService
 import com.rustyrazorblade.easydblab.services.CommandExecutor
-import com.rustyrazorblade.easydblab.services.GrafanaDashboardService
+import com.rustyrazorblade.easydblab.services.GrafanaClient
 import com.rustyrazorblade.easydblab.services.HostOperationsService
 import com.rustyrazorblade.easydblab.services.K3sClusterService
 import com.rustyrazorblade.easydblab.services.K3sSetupResult
@@ -46,6 +46,7 @@ import com.rustyrazorblade.easydblab.services.aws.EC2InstanceService
 import com.rustyrazorblade.easydblab.services.aws.InstanceSpecFactory
 import com.rustyrazorblade.easydblab.services.aws.InstanceTypeCapabilities
 import com.rustyrazorblade.easydblab.services.aws.OpenSearchService
+import com.rustyrazorblade.easydblab.services.documents.TestDocumentService
 import com.rustyrazorblade.easydblab.ssh.Response
 import org.junit.jupiter.api.BeforeEach
 import org.koin.core.module.Module
@@ -78,10 +79,11 @@ abstract class UpTestFixture : BaseKoinTest() {
     protected lateinit var mockClusterConfigurationService: ClusterConfigurationService
     protected lateinit var mockK3sClusterService: K3sClusterService
     protected lateinit var mockCiliumService: CiliumService
-    protected lateinit var mockGrafanaDashboardService: GrafanaDashboardService
+    protected lateinit var mockGrafanaClient: GrafanaClient
     protected lateinit var mockK8sService: K8sService
     protected lateinit var mockCommandExecutor: CommandExecutor
     protected lateinit var mockObservabilityStackService: ObservabilityStackService
+    protected lateinit var mockDocumentService: TestDocumentService
     protected lateinit var outputHandler: BufferedOutputHandler
 
     /** exit code returned by the fake CommandExecutor for a nested command, keyed by simple class name */
@@ -126,59 +128,70 @@ abstract class UpTestFixture : BaseKoinTest() {
 
     /**
      * The Grafana annotation path `up` uses for the Cilium install markers: a real
-     * [CiliumInstallAnnotator] over a mocked [GrafanaDashboardService], so the tests assert what
+     * [CiliumInstallAnnotator] over a mocked [GrafanaClient], so the tests assert what
      * was posted, not merely that something was.
      */
     protected fun ciliumAnnotationModule(): Module =
         module {
-            single { mock<GrafanaDashboardService>().also { mockGrafanaDashboardService = it } }
+            single { mock<GrafanaClient>().also { mockGrafanaClient = it } }
             single { CiliumInstallAnnotator(get(), RecordingAnnotationMirror()) }
         }
 
     override fun additionalTestModules(): List<Module> =
         listOf(
             ciliumAnnotationModule(),
-            module {
-                single<ClusterStateManager> { mock<ClusterStateManager>().also { mockClusterStateManager = it } }
-                single<AwsS3BucketService> { mock<AwsS3BucketService>().also { mockS3BucketService = it } }
-                single<OpenSearchService> { mock<OpenSearchService>() }
-                single<VpcService> { mock<VpcService>().also { mockVpcService = it } }
-                single<AwsInfrastructureService> { mock<AwsInfrastructureService>().also { mockAwsInfrastructureService = it } }
-                single<EC2InstanceService> { mock<EC2InstanceService>().also { mockEc2InstanceService = it } }
-                single<HostOperationsService> { HostOperationsService(get()) }
-                single<AMIResolver> { mock<AMIResolver>().also { mockAmiResolver = it } }
-                single<InstanceSpecFactory> { DefaultInstanceSpecFactory() }
-                single<ClusterProvisioningService> { mock<ClusterProvisioningService>().also { mockClusterProvisioningService = it } }
-                single<ClusterConfigurationService> { mock<ClusterConfigurationService>().also { mockClusterConfigurationService = it } }
-                single<K3sClusterService> { mock<K3sClusterService>().also { mockK3sClusterService = it } }
-                single<CiliumService> { mock<CiliumService>().also { mockCiliumService = it } }
-                single { CiliumNodeImageCheck(get()) }
-                single { ProvisioningPreflight(get(), get()) }
-                single { AccountBucketSetup(get(), get(), get(), get(), get()) }
-                single<K8sService> { mock<K8sService>().also { mockK8sService = it } }
-                single<RegistryService> { mock<RegistryService>() }
-                single<SocksProxyService> { mock<SocksProxyService>() }
-                single<CommandExecutor> { mock<CommandExecutor>().also { mockCommandExecutor = it } }
-                single<ObservabilityStackService> {
-                    mock<ObservabilityStackService>().also { mockObservabilityStackService = it }
-                }
-
-                single<LocalTailscaleClient> {
-                    LocalTailscaleClient {
-                        localTailscaleQueries++
-                        localTailscaleState
-                    }
-                }
-                single<TcpReachabilityProbe> {
-                    TcpReachabilityProbe { host, port ->
-                        probedTargets.add("$host:$port")
-                        tailnetReachable && probedTargets.size > tailnetProbesBeforeReachable
-                    }
-                }
-
-                factory<RemoteOperationsService> { fakeRemoteOperations() }
-            },
+            provisioningModule(),
+            clusterModule(),
         )
+
+    /** The AWS side of `up`: state, bucket, network, instances and the provisioning services. */
+    private fun provisioningModule(): Module =
+        module {
+            single<ClusterStateManager> { mock<ClusterStateManager>().also { mockClusterStateManager = it } }
+            single<AwsS3BucketService> { mock<AwsS3BucketService>().also { mockS3BucketService = it } }
+            single<OpenSearchService> { mock<OpenSearchService>() }
+            single<VpcService> { mock<VpcService>().also { mockVpcService = it } }
+            single<AwsInfrastructureService> { mock<AwsInfrastructureService>().also { mockAwsInfrastructureService = it } }
+            single<EC2InstanceService> { mock<EC2InstanceService>().also { mockEc2InstanceService = it } }
+            single<HostOperationsService> { HostOperationsService(get()) }
+            single<AMIResolver> { mock<AMIResolver>().also { mockAmiResolver = it } }
+            single<InstanceSpecFactory> { DefaultInstanceSpecFactory() }
+            single<ClusterProvisioningService> { mock<ClusterProvisioningService>().also { mockClusterProvisioningService = it } }
+            single<ClusterConfigurationService> { mock<ClusterConfigurationService>().also { mockClusterConfigurationService = it } }
+            single<K3sClusterService> { mock<K3sClusterService>().also { mockK3sClusterService = it } }
+            single<CiliumService> { mock<CiliumService>().also { mockCiliumService = it } }
+            single { CiliumNodeImageCheck(get()) }
+            single { ProvisioningPreflight(get(), get()) }
+            single { AccountBucketSetup(get(), get(), get(), get(), get()) }
+        }
+
+    /** The cluster side of `up`: K8s, the nested commands, the stack, Tailscale and SSH. */
+    private fun clusterModule(): Module =
+        module {
+            single<TestDocumentService> { mock<TestDocumentService>().also { mockDocumentService = it } }
+            single<K8sService> { mock<K8sService>().also { mockK8sService = it } }
+            single<RegistryService> { mock<RegistryService>() }
+            single<SocksProxyService> { mock<SocksProxyService>() }
+            single<CommandExecutor> { mock<CommandExecutor>().also { mockCommandExecutor = it } }
+            single<ObservabilityStackService> {
+                mock<ObservabilityStackService>().also { mockObservabilityStackService = it }
+            }
+
+            single<LocalTailscaleClient> {
+                LocalTailscaleClient {
+                    localTailscaleQueries++
+                    localTailscaleState
+                }
+            }
+            single<TcpReachabilityProbe> {
+                TcpReachabilityProbe { host, port ->
+                    probedTargets.add("$host:$port")
+                    tailnetReachable && probedTargets.size > tailnetProbesBeforeReachable
+                }
+            }
+
+            factory<RemoteOperationsService> { fakeRemoteOperations() }
+        }
 
     /** An SSH layer that runs nothing and answers through [fakeRemoteResponse]. */
     private fun fakeRemoteOperations(): RemoteOperationsService =
@@ -282,7 +295,8 @@ abstract class UpTestFixture : BaseKoinTest() {
         mockClusterConfigurationService = getKoin().get()
         mockK3sClusterService = getKoin().get()
         mockCiliumService = getKoin().get()
-        mockGrafanaDashboardService = getKoin().get()
+        mockDocumentService = getKoin().get()
+        mockGrafanaClient = getKoin().get()
         mockK8sService = getKoin().get()
         mockCommandExecutor = getKoin().get()
         mockObservabilityStackService = getKoin().get()

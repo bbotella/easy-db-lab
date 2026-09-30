@@ -1,13 +1,18 @@
 package com.rustyrazorblade.easydblab.configuration.otel
 
+import com.charleskorn.kaml.YamlList
+import com.charleskorn.kaml.YamlMap
+import com.charleskorn.kaml.YamlScalar
 import com.rustyrazorblade.easydblab.BaseKoinTest
 import com.rustyrazorblade.easydblab.YamlTestSupport.keysAt
 import com.rustyrazorblade.easydblab.YamlTestSupport.listAt
+import com.rustyrazorblade.easydblab.YamlTestSupport.nodeAt
 import com.rustyrazorblade.easydblab.YamlTestSupport.scalarAt
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.ClusterStateManager
 import com.rustyrazorblade.easydblab.configuration.CniMode
 import com.rustyrazorblade.easydblab.configuration.TelemetryRedirect
+import com.rustyrazorblade.easydblab.configuration.grafana.DashboardFiles
 import com.rustyrazorblade.easydblab.services.TemplateService
 import io.fabric8.kubernetes.api.model.ConfigMap
 import org.assertj.core.api.Assertions.assertThat
@@ -126,6 +131,56 @@ class OtelManifestBuilderTest : BaseKoinTest() {
     @Test
     fun `span-derived metrics drop the SDK resource too`() {
         assertThat(pipeline("metrics/spanmetrics:")).contains("resource/drop_sdk_metadata")
+    }
+
+    /**
+     * Host metrics and host log files carry no pod, so k8s_attributes never finds the node's `type`
+     * label for them; their node_role comes from the host name that resource_detection stamps. The
+     * kit metrics that metrics/local scrapes by pod discovery do carry their pod (the Prometheus
+     * receiver sets k8s.pod.name and k8s.namespace.name from the target), so k8s_attributes runs
+     * first and the host-name rule only fills a node_role it left unset.
+     */
+    @Test
+    fun `host metrics take node_role from the host name, after pod metadata for scraped kit pods`() {
+        val yaml = yamlFrom(builder.buildConfigMap(emptyList()))
+
+        assertThat(listAt(yaml, "service", "pipelines", "metrics/local", "processors"))
+            .containsSubsequence("resource_detection", "k8s_attributes", "transform/node_role_from_host", "batch")
+        assertThat(listAt(yaml, "service", "pipelines", "logs/local", "processors"))
+            .containsSubsequence("resource_detection", "transform/node_role_from_host")
+        assertThat(listAt(yaml, "service", "pipelines", "logs/containers", "processors")).contains("k8s_attributes")
+    }
+
+    /**
+     * Removing k8s_attributes from metrics/local once left every kit's scraped series without
+     * `k8s_app_instance`, and the PostgreSQL extension dashboards, which select on it, went empty.
+     * Every label a dashboard reads that only k8s_attributes writes needs it in each pipeline that
+     * runs the Prometheus receiver.
+     */
+    @Test
+    fun `every pipeline that scrapes kit pods runs k8s_attributes when a dashboard reads a label only it writes`() {
+        val yaml = yamlFrom(builder.buildConfigMap(emptyList()))
+        val written =
+            (nodeAt(yaml, "processors", "k8s_attributes", "extract", "labels") as YamlList)
+                .items
+                .map { checkNotNull((it as YamlMap).get<YamlScalar>("tag_name")).content.replace('.', '_') }
+                .toSet()
+        val read =
+            DashboardFiles
+                .all()
+                .flatMap { file -> Regex("""\b(k8s_[a-z_]+|node_role)\b""").findAll(file.readText()).map { it.value }.toList() }
+                .toSet()
+        val needed = written intersect read
+        val scraping =
+            keysAt(yaml, "service", "pipelines").filter { "prometheus" in listAt(yaml, "service", "pipelines", it, "receivers") }
+
+        assertThat(needed).contains("k8s_app_instance")
+        assertThat(scraping).isNotEmpty()
+        scraping.forEach { name ->
+            assertThat(
+                listAt(yaml, "service", "pipelines", name, "processors"),
+            ).describedAs("$name reads $needed").contains("k8s_attributes")
+        }
     }
 
     /**
