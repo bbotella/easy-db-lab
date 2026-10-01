@@ -33,10 +33,15 @@ exec "$@"
 SHIM
 
 # Record the alternatives switches so a test can assert which JDK was selected.
+# A test makes a switch fail by creating ${SANDBOX}/<tool>.fail.
 for tool in update-java-alternatives update-alternatives; do
   cat >"${BIN}/${tool}" <<SHIM
 #!/bin/bash
 echo "${tool} \$*" >> "${SANDBOX}/alternatives.log"
+if [[ -f "${SANDBOX}/${tool}.fail" ]]; then
+  echo "${tool}: no such alternative" >&2
+  exit 1
+fi
 SHIM
 done
 
@@ -167,6 +172,45 @@ if [[ "$(readlink "${CASSANDRA_INSTALL_DIR}/current")" == "${CASSANDRA_INSTALL_D
   pass "selecting another installed version moves 'current'"
 else
   fail "expected current -> 4.1, got $(readlink "${CASSANDRA_INSTALL_DIR}/current")"
+fi
+
+# --- a version declared for JDK 25 selects JDK 25 -----------------------------
+# `cassandra use <v> --java 25` records 25 in the version list; this script does the switch.
+mkdir -p "${CASSANDRA_INSTALL_DIR}/6.0/conf"
+cat >"$CASSANDRA_VERSIONS" <<'YAMLFIXTURE'
+- version: "6.0"
+  java: "25"
+  python: "3.11.9"
+YAMLFIXTURE
+run_script 6.0
+if [[ "$STATUS" -eq 0 ]]; then
+  pass "a JDK 25 version exits 0"
+else
+  fail "a JDK 25 version should exit 0, got ${STATUS}: ${OUTPUT}"
+fi
+
+if grep -q "update-java-alternatives -s java-1.25.0-openjdk-amd64" "${SANDBOX}/alternatives.log" 2>/dev/null; then
+  pass "a JDK 25 version selects java-1.25.0-openjdk"
+else
+  fail "expected JDK 25 to be selected, got: $(cat "${SANDBOX}/alternatives.log" 2>/dev/null)"
+fi
+
+# --- a failed JDK switch fails the script -------------------------------------
+# A wrong jinfo name leaves the node on its old JDK; exiting 0 then would hide that until Cassandra
+# misbehaves on the wrong runtime.
+touch "${SANDBOX}/update-java-alternatives.fail"
+run_script 6.0
+rm -f "${SANDBOX}/update-java-alternatives.fail"
+if [[ "$STATUS" -ne 0 ]]; then
+  pass "a failed JDK switch exits non-zero"
+else
+  fail "a failed JDK switch should exit non-zero: ${OUTPUT}"
+fi
+
+if [[ "$OUTPUT" == *"JDK 25"* ]]; then
+  pass "a failed JDK switch names the requested JDK"
+else
+  fail "expected the failure to name JDK 25, got: ${OUTPUT}"
 fi
 
 echo
