@@ -20,9 +20,12 @@ import kotlin.io.path.Path
  * threads that ask for the same host at the same time share one connection.
  *
  * @param config SSH configuration settings
+ * @param route decides the address and port each host is dialed at, which is how the profile's
+ *   SSH transport reaches the in-process client
  */
 class DefaultSSHConnectionProvider(
     private val config: SSHConfiguration,
+    private val route: SshRoute,
 ) : SSHConnectionProvider,
     KoinComponent {
     companion object {
@@ -66,14 +69,15 @@ class DefaultSSHConnectionProvider(
      * @return A new SSH client connected to the host
      */
     private fun createNewConnection(host: Host): ISSHClient {
-        log.info { "Creating new SSH connection to ${host.alias} (${host.public})" }
+        val endpoint = route.endpoint(host)
+        log.info { "Creating new SSH connection to ${host.alias} (${endpoint.address}:${endpoint.port})" }
 
         val session =
             sshClient
                 .connect(
                     config.sshUsername,
-                    host.public,
-                    config.sshPort,
+                    endpoint.address,
+                    endpoint.port,
                 ).verify(Duration.ofSeconds(config.connectionTimeoutSeconds))
                 .session
 
@@ -97,6 +101,9 @@ class DefaultSSHConnectionProvider(
         } catch (e: RuntimeException) {
             log.error(e) { "Runtime error while stopping SSH client" }
         }
+
+        // Closed after the sessions above, since a session may be riding a tunnel the route started.
+        route.close()
 
         log.info { "SSH client stopped successfully" }
     }

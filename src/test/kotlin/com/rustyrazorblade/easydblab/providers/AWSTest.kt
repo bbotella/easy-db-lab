@@ -234,7 +234,9 @@ internal class AWSTest :
         verify(mockIamClient).getInstanceProfile(any<software.amazon.awssdk.services.iam.model.GetInstanceProfileRequest>())
         verify(mockIamClient).listRolePolicies(any<software.amazon.awssdk.services.iam.model.ListRolePoliciesRequest>())
 
-        // Assert the result
+        // Every cluster node must be reachable over SSM, so the new role carries the SSM core policy
+        val attached = argumentCaptor<AttachRolePolicyRequest>().also { verify(mockIamClient).attachRolePolicy(it.capture()) }
+        assertThat(attached.firstValue.policyArn()).isEqualTo("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore")
         assertThat(result).isEqualTo(roleName)
     }
 

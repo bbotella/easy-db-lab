@@ -57,6 +57,13 @@ class AWSResourceSetupService(
     fun getAccountId(): String = aws.getAccountId()
 
     /**
+     * Re-applies the cluster instance role's policies, so a role created by an older version picks up
+     * the current set before any instance launches. [ensureAWSResources] returns early for a role
+     * that already validates, so this is how existing roles are upgraded. Idempotent.
+     */
+    fun reapplyInstanceRolePolicies() = aws.attachInstanceRolePolicies(Constants.AWS.Roles.EC2_INSTANCE_ROLE)
+
+    /**
      * Ensures all AWS IAM resources are set up before any command runs.
      * Only creates resources if they don't exist or are invalid.
      * Validates credentials first.

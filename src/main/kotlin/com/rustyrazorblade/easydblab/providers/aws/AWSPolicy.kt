@@ -345,6 +345,14 @@ sealed class AWSPolicy {
         data object ECSTaskExecution :
             Managed("arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy")
 
+        /**
+         * AWS managed policy the SSM agent needs to register an instance with Session Manager.
+         * Attached to EasyDBLabEC2Role so every cluster node can be reached over SSM, whichever
+         * SSH transport the operator's profile selects.
+         */
+        data object SSMManagedInstanceCore :
+            Managed("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore")
+
         override fun toJson(): String =
             throw UnsupportedOperationException(
                 "Managed policies don't have JSON content. Use the 'arn' property instead.",

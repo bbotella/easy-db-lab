@@ -310,6 +310,8 @@ Before pushing code, verify it passes all checks:
 
 The images are stacked: `cassandra = base + Cassandra tarballs`, and `cassandra.pkr.hcl` selects the most recent base AMI. A change under `packer/base/` therefore needs **both** images rebuilt (`build-image`), not just the Cassandra one.
 
+Under the `ssm` SSH transport, Packer reaches the builder with `ssh_interface = "session_manager"` and runs in a derived image (`containers/PackerImage.kt`), built locally from the packaged `containers/packer-ssm.Dockerfile` resource and tagged by its content hash. Editing that Dockerfile is enough to get a rebuild on the next `ssm` AMI build.
+
 ### Packer Script Testing
 
 Test packer provisioning scripts locally using Docker (no AWS required):

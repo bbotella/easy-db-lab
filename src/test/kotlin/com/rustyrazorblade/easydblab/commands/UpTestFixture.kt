@@ -30,6 +30,7 @@ import com.rustyrazorblade.easydblab.services.HostOperationsService
 import com.rustyrazorblade.easydblab.services.K3sClusterService
 import com.rustyrazorblade.easydblab.services.K3sSetupResult
 import com.rustyrazorblade.easydblab.services.K8sService
+import com.rustyrazorblade.easydblab.services.LocalSsmTooling
 import com.rustyrazorblade.easydblab.services.LocalTailscaleClient
 import com.rustyrazorblade.easydblab.services.LocalTailscaleState
 import com.rustyrazorblade.easydblab.services.ObservabilityStackService
@@ -37,7 +38,9 @@ import com.rustyrazorblade.easydblab.services.ProvisioningPreflight
 import com.rustyrazorblade.easydblab.services.ProvisioningResult
 import com.rustyrazorblade.easydblab.services.RecordingAnnotationMirror
 import com.rustyrazorblade.easydblab.services.RegistryService
+import com.rustyrazorblade.easydblab.services.SsmTool
 import com.rustyrazorblade.easydblab.services.aws.AMIResolver
+import com.rustyrazorblade.easydblab.services.aws.AWSResourceSetupService
 import com.rustyrazorblade.easydblab.services.aws.AccountBucketSetup
 import com.rustyrazorblade.easydblab.services.aws.AwsInfrastructureService
 import com.rustyrazorblade.easydblab.services.aws.AwsS3BucketService
@@ -95,6 +98,10 @@ abstract class UpTestFixture : BaseKoinTest() {
     /** state the fake LocalTailscaleClient reports, and how many times `up` asked for it */
     protected var localTailscaleState: LocalTailscaleState = LocalTailscaleState.Connected
     protected var localTailscaleQueries = 0
+
+    /** tools the fake LocalSsmTooling reports missing, and how many times `up` asked */
+    protected var missingSsmTools: List<SsmTool> = emptyList()
+    protected var localSsmToolingQueries = 0
 
     /**
      * answer the fake TcpReachabilityProbe gives once [tailnetProbesBeforeReachable] earlier probes
@@ -161,8 +168,9 @@ abstract class UpTestFixture : BaseKoinTest() {
             single<K3sClusterService> { mock<K3sClusterService>().also { mockK3sClusterService = it } }
             single<CiliumService> { mock<CiliumService>().also { mockCiliumService = it } }
             single { CiliumNodeImageCheck(get()) }
-            single { ProvisioningPreflight(get(), get()) }
-            single { AccountBucketSetup(get(), get(), get(), get(), get()) }
+            single { AWSResourceSetupService(get(), get()) }
+            single { ProvisioningPreflight(get(), get(), get(), get()) }
+            single { AccountBucketSetup(get(), get(), get(), get(), get(), get()) }
         }
 
     /** The cluster side of `up`: K8s, the nested commands, the stack, Tailscale and SSH. */
@@ -181,6 +189,12 @@ abstract class UpTestFixture : BaseKoinTest() {
                 LocalTailscaleClient {
                     localTailscaleQueries++
                     localTailscaleState
+                }
+            }
+            single<LocalSsmTooling> {
+                LocalSsmTooling {
+                    localSsmToolingQueries++
+                    missingSsmTools
                 }
             }
             single<TcpReachabilityProbe> {
@@ -274,6 +288,8 @@ abstract class UpTestFixture : BaseKoinTest() {
         invokedCommandNames.clear()
         localTailscaleState = LocalTailscaleState.Connected
         localTailscaleQueries = 0
+        missingSsmTools = emptyList()
+        localSsmToolingQueries = 0
         tailnetReachable = true
         probedTargets.clear()
         sshFailureAlias = null

@@ -4552,6 +4552,22 @@ sealed interface Event {
         }
 
         @Serializable
+        @SerialName("Docker.ImageBuilding")
+        data class ImageBuilding(
+            val imageTag: String,
+        ) : Docker {
+            override fun toDisplayString(): String = "Building image $imageTag (first use only; this can take a minute)..."
+        }
+
+        @Serializable
+        @SerialName("Docker.ImageBuilt")
+        data class ImageBuilt(
+            val imageTag: String,
+        ) : Docker {
+            override fun toDisplayString(): String = "Built image $imageTag"
+        }
+
+        @Serializable
         @SerialName("Docker.ExecutionWorkDir")
         data class ExecutionWorkDir(
             val workingDirectory: String,
@@ -5031,6 +5047,30 @@ sealed interface Event {
         }
 
         @Serializable
+        @SerialName("Setup.SshTransportConfigHeader")
+        data object SshTransportConfigHeader : Setup {
+            override fun toDisplayString(): String =
+                """
+                |
+                |--- SSH Transport ---
+                |direct: connect to each node's public IP on port 22 (default)
+                |ssm:    tunnel SSH through AWS SSM Session Manager, for networks that block or
+                |        re-route outbound port 22. Needs the AWS CLI and session-manager-plugin.
+                """.trimMargin()
+        }
+
+        @Serializable
+        @SerialName("Setup.InvalidSshTransport")
+        data class InvalidSshTransport(
+            val value: String,
+            val choices: List<String>,
+        ) : Setup {
+            override fun toDisplayString(): String = "'$value' is not an SSH transport. Choose one of: ${choices.joinToString(", ")}"
+
+            override fun isError(): Boolean = true
+        }
+
+        @Serializable
         @SerialName("Setup.ConfigSectionSaved")
         data object ConfigSectionSaved : Setup {
             override fun toDisplayString(): String = "\nConfiguration saved"
@@ -5328,6 +5368,23 @@ sealed interface Event {
             val remoteDir: String,
         ) : Ssh {
             override fun toDisplayString(): String = "Uploading directory $localDir to $remoteDir"
+        }
+
+        /**
+         * The profile's SSH transport is `ssm`, but programs it needs are missing from this machine.
+         *
+         * @param installHints each missing executable mapped to how to install it
+         */
+        @Serializable
+        @SerialName("Ssh.SsmToolsMissing")
+        data class SsmToolsMissing(
+            val installHints: Map<String, String>,
+        ) : Ssh {
+            override fun toDisplayString(): String =
+                "This profile tunnels SSH over SSM Session Manager, but this machine is missing:\n" +
+                    installHints.entries.joinToString("\n") { (tool, hint) -> "  $tool: $hint" }
+
+            override fun isError(): Boolean = true
         }
     }
 

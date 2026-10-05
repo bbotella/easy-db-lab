@@ -74,6 +74,27 @@
         "ecr:BatchGetImage"
       ],
       "Resource": "arn:aws:ecr:*:ACCOUNT_ID:repository/*"
+    },
+    {
+      "Sid": "SSMStartSession",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:StartSession"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:ACCOUNT_ID:instance/*",
+        "arn:aws:ssm:*::document/AWS-StartSSHSession",
+        "arn:aws:ssm:*::document/AWS-StartPortForwardingSession"
+      ]
+    },
+    {
+      "Sid": "SSMSessionLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:TerminateSession",
+        "ssm:ResumeSession"
+      ],
+      "Resource": "arn:aws:ssm:*:ACCOUNT_ID:session/*"
     }
   ]
 }

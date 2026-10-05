@@ -6,6 +6,7 @@ import com.rustyrazorblade.easydblab.TestPrompter
 import com.rustyrazorblade.easydblab.commands.BuildImage
 import com.rustyrazorblade.easydblab.commands.SetupProfileException
 import com.rustyrazorblade.easydblab.configuration.Arch
+import com.rustyrazorblade.easydblab.configuration.SshTransport
 import com.rustyrazorblade.easydblab.configuration.User
 import com.rustyrazorblade.easydblab.configuration.UserConfigProvider
 import com.rustyrazorblade.easydblab.output.BufferedOutputHandler
@@ -26,6 +27,8 @@ import org.koin.core.module.Module
 import org.koin.dsl.module
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.doNothing
 import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.mock
@@ -251,6 +254,64 @@ class SetupProfileTest : BaseKoinTest() {
             assertThat(userConfig.axonOpsOrg).isEqualTo("new-org")
             verify(mockUserConfigProvider).saveUserConfig(userConfig)
         }
+
+        @Test
+        fun `execute saves the ssm transport when the user selects it`() {
+            val userConfig = existingProfile()
+            testPrompter = TestPrompter(mapOf("SSH transport" to "ssm"))
+            setupTestModule()
+
+            SetupProfile().execute()
+
+            assertThat(userConfig.sshTransport).isEqualTo(SshTransport.Ssm)
+            verify(mockUserConfigProvider).saveUserConfig(userConfig)
+        }
+
+        @Test
+        fun `execute asks again until the transport answer is recognized`() {
+            val userConfig = existingProfile()
+            testPrompter = TestPrompter().apply { addSequentialResponses("SSH transport", "tunnel", " SSM ") }
+            setupTestModule()
+
+            SetupProfile().execute()
+
+            assertThat(userConfig.sshTransport).isEqualTo(SshTransport.Ssm)
+            assertThat(testPrompter.getCallLog().count { it.question.contains("SSH transport") }).isEqualTo(2)
+        }
+
+        @Test
+        fun `execute keeps the current transport when the answer is blank`() {
+            val userConfig = existingProfile().apply { sshTransport = SshTransport.Ssm }
+            testPrompter = TestPrompter(mapOf("SSH transport" to ""))
+            setupTestModule()
+
+            SetupProfile().execute()
+
+            assertThat(userConfig.sshTransport).isEqualTo(SshTransport.Ssm)
+        }
+
+        /** Registers a complete static-credential profile and returns the User the command will update. */
+        private fun existingProfile(): User {
+            whenever(mockUserConfigProvider.loadExistingConfig()).thenReturn(
+                mapOf(
+                    "email" to "test@example.com",
+                    "region" to "us-west-2",
+                    "awsAccessKey" to "AKIATEST",
+                    "awsSecret" to "secret123",
+                ),
+            )
+            val userConfig =
+                User(
+                    email = "test@example.com",
+                    region = "us-west-2",
+                    keyName = "test-key",
+                    awsProfile = "",
+                    awsAccessKey = "AKIATEST",
+                    awsSecret = "secret123",
+                )
+            whenever(mockUserConfigProvider.getUserConfig()).thenReturn(userConfig)
+            return userConfig
+        }
     }
 
     @Nested
@@ -302,6 +363,27 @@ class SetupProfileTest : BaseKoinTest() {
 
             // Should create Packer infrastructure, scoping SSH to the developer's IP
             verify(mockAwsInfra).ensurePackerInfrastructure(any(), any())
+        }
+
+        @Test
+        fun `execute records the transport chosen during first-time setup`() {
+            testPrompter =
+                TestPrompter(
+                    mapOf(
+                        "email" to "user@test.com",
+                        "region" to "us-west-2",
+                        "AWS Profile" to "my-profile",
+                        "IAM policies" to "N",
+                        "SSH transport" to "ssm",
+                    ),
+                )
+            setupTestModule()
+
+            SetupProfile().execute()
+
+            val saved = argumentCaptor<User>()
+            verify(mockUserConfigProvider, atLeastOnce()).saveUserConfig(saved.capture())
+            assertThat(saved.lastValue.sshTransport).isEqualTo(SshTransport.Ssm)
         }
 
         @Test

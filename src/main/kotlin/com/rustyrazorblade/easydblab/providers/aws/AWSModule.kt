@@ -268,5 +268,5 @@ val awsModule =
         single { ClusterCensus(get(), get()) }
         single<CompactorService> { DefaultCompactorService(get(), get(), get(), get(), get(), get()) }
         factory { BucketRegion(get()) }
-        factory { AccountBucketSetup(get(), get(), get(), get(), get()) }
+        factory { AccountBucketSetup(get(), get(), get(), get(), get(), get()) }
     }

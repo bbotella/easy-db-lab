@@ -2,6 +2,8 @@ package com.rustyrazorblade.easydblab.services
 
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.InitConfig
+import com.rustyrazorblade.easydblab.configuration.SshTransport
+import com.rustyrazorblade.easydblab.configuration.User
 import com.rustyrazorblade.easydblab.events.Event
 import com.rustyrazorblade.easydblab.events.EventBus
 
@@ -12,6 +14,8 @@ import com.rustyrazorblade.easydblab.events.EventBus
 class ProvisioningPreflight(
     private val localTailscaleClient: LocalTailscaleClient,
     private val eventBus: EventBus,
+    private val localSsmTooling: LocalSsmTooling,
+    private val userConfig: User,
 ) {
     /** Fails when [state] or its [initConfig] cannot produce a cluster this machine can reach. */
     fun verify(
@@ -21,6 +25,28 @@ class ProvisioningPreflight(
         verifyControlNode(initConfig)
         verifyTelemetryRedirect(initConfig)
         verifyLocalTailscale(state)
+        verifyLocalSsmTooling()
+    }
+
+    /**
+     * Validates that the programs the `ssm` SSH transport needs are on THIS machine.
+     *
+     * Under `ssm` every SSH connection, `up`'s own readiness wait included, is opened by the AWS CLI
+     * through the Session Manager plugin. Without them that fault would surface only after the
+     * instances were running, as an SSH readiness timeout that says nothing about SSM.
+     */
+    private fun verifyLocalSsmTooling() {
+        if (userConfig.sshTransport != SshTransport.Ssm) return
+
+        val missing = localSsmTooling.missingTools()
+        if (missing.isEmpty()) return
+
+        eventBus.emit(Event.Ssh.SsmToolsMissing(missing.associate { it.executable to it.installHint }))
+        error(
+            "This profile's SSH transport is ssm, but " +
+                missing.joinToString(" and ") { "'${it.executable}'" } +
+                " could not be run on this machine. Install the missing tools, then run 'easy-db-lab up' again.",
+        )
     }
 
     /**

@@ -17,6 +17,10 @@ There are two methods to access your cluster:
 | **Tailscale VPN** (Recommended) | Production use, team sharing, persistent access |
 | **SOCKS Proxy** | Quick testing when you don't want to set up Tailscale |
 
+Both methods, and every command easy-db-lab runs on a node, travel over SSH. If your network blocks or
+re-routes outbound SSH (port 22), switch the profile's SSH transport to
+[SSM Session Manager](#ssh-over-ssm-session-manager). It works underneath either method.
+
 ## Tailscale VPN (Recommended)
 
 Tailscale provides a persistent VPN connection to your cluster. Once connected, you can access cluster resources directly—no proxy configuration needed.
@@ -295,6 +299,93 @@ running against a dead proxy port. Check `socks5-proxy.log` in your cluster work
 for the `ssh -v` transcript — it shows the actual reason the tunnel failed. See
 [Host Key Verification](#host-key-verification) above for the most common cause on a
 newly-provisioned cluster.
+
+## SSH over SSM Session Manager
+
+Everything easy-db-lab does on a node travels over SSH: provisioning, the SOCKS proxy, `ssh db0`,
+and the `c0` aliases. By default SSH connects straight to each node's public IP on port 22. Some
+networks don't allow that, typically a corporate egress proxy that only routes outbound traffic to
+destinations registered with it in advance. A freshly provisioned instance can never be
+pre-registered, so on those networks `up` times out waiting for SSH even though the instances are
+healthy.
+
+The `ssm` SSH transport tunnels every SSH connection through
+[AWS Systems Manager Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html).
+The SSM agent on each node connects *out* to AWS over HTTPS, so your machine never needs to reach a
+node on port 22. Nothing else about SSH changes: the keys, the generated `sshConfig`, and every
+command stay the same.
+
+### Requirements
+
+- **On your machine:** the AWS CLI v2 and the Session Manager plugin.
+
+  ```bash
+  brew install awscli
+  brew install --cask session-manager-plugin
+  ```
+
+  For other platforms, see the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+  and [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+  install guides. `up` checks for both before it creates any AWS resource.
+- **IAM:** your user or role must be allowed to open sessions. The EC2 policy printed by
+  `easy-db-lab show-iam-policies ec2` includes `ssm:StartSession`, `ssm:TerminateSession` and
+  `ssm:ResumeSession`.
+- **On the cluster:** nothing. Every node's instance role carries the AWS managed
+  `AmazonSSMManagedInstanceCore` policy, and `up` attaches it to roles created by older versions.
+  The node image already runs the SSM agent.
+
+The SSM sessions authenticate as your profile does: through its named AWS profile (including SSO)
+when one is set, otherwise with its static keys.
+
+### Enabling it
+
+Run `profile setup` and answer `ssm` at the SSH transport prompt:
+
+```
+SSH transport (direct, ssm)? [direct] ssm
+```
+
+`easy-db-lab profile show` reports the current transport.
+
+```admonish note
+Choose the transport before you run `up`. `up` writes the cluster's `sshConfig`, which the SOCKS
+proxy and the `env.sh` helpers use, with the transport that was selected at the time.
+```
+
+### AMI builds
+
+AMI builds (`profile setup`, `build-image`, `build-base`, `build-cassandra`) follow the same
+setting. Under `ssm`, Packer reaches its temporary build instance through Session Manager instead of
+its public IP.
+
+Packer runs in a container, and the stock Packer image has no Session Manager plugin. The first
+`ssm` AMI build therefore builds a derived image, `localhost/easy-db-lab/packer-ssm`, which adds the
+plugin. Later builds reuse it. Building it needs your container engine to reach the Alpine package
+mirror and AWS's plugin download at `s3.amazonaws.com`. AMI builds need nothing extra installed on
+your machine itself.
+
+### Troubleshooting SSM
+
+**`up` stops with "this machine is missing: session-manager-plugin"** (or `aws`): install the tool
+it names, then run `easy-db-lab up` again.
+
+**`TargetNotConnected` while `up` waits for SSH:** a freshly booted node's SSM agent takes a short
+while to register with AWS. `up` keeps retrying, exactly as it does while sshd starts. If it never
+connects, check that the node can reach the internet over HTTPS.
+
+**`AccessDeniedException` mentioning `ssm:StartSession`:** your IAM identity is missing the SSM
+permissions. Compare it against `easy-db-lab show-iam-policies ec2`.
+
+**Checking SSM outside easy-db-lab:** take an instance ID from `easy-db-lab status` and open a plain
+session to it:
+
+```bash
+aws ssm start-session --target <instance-id>
+```
+
+If that also fails from your network, the proxy is blocking Session Manager itself (its data
+channel is a WebSocket to `ssmmessages.<region>.amazonaws.com` on port 443). Ask your network
+administrators to allow that endpoint.
 
 ## Comparison
 

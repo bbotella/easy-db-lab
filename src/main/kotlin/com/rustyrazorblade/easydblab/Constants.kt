@@ -159,7 +159,17 @@ object Constants {
     // Packer configuration
     object Packer {
         const val CASSANDRA_VERSIONS_FILE = "cassandra_versions.yaml"
-        const val AWS_CREDENTIALS_ENV = "AWS_SHARED_CREDENTIALS_FILE"
+
+        // Packer's communicator interface for reaching the builder over SSM Session Manager
+        const val SESSION_MANAGER_INTERFACE = "session_manager"
+
+        // The Packer image used under the `ssm` SSH transport: built locally from SSM_DOCKERFILE_RESOURCE.
+        // "localhost/" keeps the name identical under Docker and Podman, which prefixes local builds with it.
+        const val SSM_IMAGE_NAME = "localhost/easy-db-lab/packer-ssm"
+        const val SSM_DOCKERFILE_RESOURCE = "/com/rustyrazorblade/easydblab/containers/packer-ssm.Dockerfile"
+
+        // Hex characters of the Dockerfile's SHA-256 used as the SSM image tag
+        const val SSM_IMAGE_TAG_LENGTH = 12
     }
 
     // Event Bus configuration
@@ -181,6 +191,11 @@ object Constants {
     // AWS configuration
     object AWS {
         const val DEFAULT_CREDENTIALS_NAME = "awscredentials"
+
+        // The shared-credentials file the tool writes holds one profile under this name; the AWS CLI
+        // (Packer, SSM sessions) is pointed at the file with SHARED_CREDENTIALS_FILE_ENV.
+        const val CREDENTIALS_FILE_PROFILE = "default"
+        const val SHARED_CREDENTIALS_FILE_ENV = "AWS_SHARED_CREDENTIALS_FILE"
         const val SSH_KEY_ENV = "EASY_DB_LAB_SSH_KEY"
 
         // AMI configuration
@@ -956,6 +971,52 @@ object Constants {
 
         /** Stand-in `BackendState` for a `tailscale status` that never returned. */
         const val BACKEND_STATE_TIMED_OUT = "timed out"
+    }
+
+    // AWS Systems Manager Session Manager, used as the SSH transport when a profile selects `ssm`
+    object Ssm {
+        /** The AWS CLI executable. Session Manager sessions are started through it. */
+        const val AWS_CLI = "aws"
+
+        /** The Session Manager plugin the AWS CLI hands each session to. */
+        const val SESSION_MANAGER_PLUGIN = "session-manager-plugin"
+
+        /** AWS-owned document that bridges a session's stdin/stdout to a port on the instance. */
+        const val SSH_SESSION_DOCUMENT = "AWS-StartSSHSession"
+
+        /** AWS-owned document that forwards a local port to a port on the instance. */
+        const val PORT_FORWARD_DOCUMENT = "AWS-StartPortForwardingSession"
+
+        /** Line the Session Manager plugin prints once a port-forward listener is accepting connections. */
+        const val PORT_FORWARD_READY_MARKER = "Waiting for connections"
+
+        /** Address a port-forwarding session listens on. */
+        const val LOCAL_FORWARD_ADDRESS = "127.0.0.1"
+
+        /** How long a port-forwarding session gets to report ready before it is killed. */
+        const val PORT_FORWARD_READY_TIMEOUT_SECONDS = 60L
+
+        /** How long a forwarding process gets to exit after SIGTERM before it is killed outright. */
+        const val PROCESS_STOP_GRACE_SECONDS = 5L
+
+        /** How long a local `--version` check of the AWS CLI or the plugin may run. */
+        const val TOOL_CHECK_TIMEOUT_SECONDS = 10L
+
+        /** Most recent plugin output lines kept for error messages. */
+        const val TRANSCRIPT_MAX_LINES = 50
+
+        /** ssh keepalive interval for hosts reached over SSM, well inside Session Manager's 20-minute idle timeout. */
+        const val SSH_KEEPALIVE_INTERVAL_SECONDS = 30
+
+        /** Unanswered keepalives before ssh gives up on a dropped session (about 90s at the interval above). */
+        const val SSH_KEEPALIVE_COUNT_MAX = 3
+
+        const val AWS_CLI_INSTALL_HINT =
+            "brew install awscli (or https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)"
+
+        const val PLUGIN_INSTALL_HINT =
+            "brew install --cask session-manager-plugin " +
+                "(or https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)"
     }
 
     // Container Registry configuration

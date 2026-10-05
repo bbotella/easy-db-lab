@@ -81,7 +81,12 @@ class ProcessSocksProxyService(
     private val portSelector: LocalPortSelector = LoopbackPortSelector(),
 ) : SocksProxyService {
     companion object {
-        private const val VERIFY_RETRIES = 10
+        // About 30s of polling. A direct tunnel is up in well under a second, but over the `ssm` SSH
+        // transport ssh first waits on `aws ssm start-session` (CLI start-up, the StartSession call,
+        // the plugin's WebSocket) and then runs key exchange and auth through it, which takes several
+        // seconds. The loop returns on the first success and bails the moment ssh
+        // dies, so the extra length only costs time when a live ssh never produces a tunnel.
+        private const val VERIFY_RETRIES = 60
         private const val VERIFY_DELAY_MS = 500L
         private const val VERIFY_CONNECT_TIMEOUT_MS = 1000
         private const val SSH_ERROR_TAIL_LINES = 15

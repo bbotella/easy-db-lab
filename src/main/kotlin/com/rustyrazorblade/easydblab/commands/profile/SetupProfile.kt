@@ -7,6 +7,7 @@ import com.rustyrazorblade.easydblab.commands.PicoBaseCommand
 import com.rustyrazorblade.easydblab.commands.SetupProfileException
 import com.rustyrazorblade.easydblab.configuration.Arch
 import com.rustyrazorblade.easydblab.configuration.Policy
+import com.rustyrazorblade.easydblab.configuration.SshTransport
 import com.rustyrazorblade.easydblab.configuration.User
 import com.rustyrazorblade.easydblab.configuration.UserConfigProvider
 import com.rustyrazorblade.easydblab.events.Event
@@ -287,6 +288,8 @@ class SetupProfile : PicoBaseCommand() {
         userConfig.tailscaleClientId = tailscaleClientId
         userConfig.tailscaleClientSecret = tailscaleClientSecret
 
+        userConfig.sshTransport = existingSshTransport(existingConfig) ?: promptForSshTransport(SshTransport.Direct)
+
         userConfigProvider.saveUserConfig(userConfig)
         eventBus.emit(Event.Setup.ConfigurationSaved)
     }
@@ -328,9 +331,33 @@ class SetupProfile : PicoBaseCommand() {
                 secret = true,
             )
 
+        userConfig.sshTransport = promptForSshTransport(userConfig.sshTransport)
+
         userConfigProvider.saveUserConfig(userConfig)
         eventBus.emit(Event.Setup.ConfigSectionSaved)
     }
+
+    /**
+     * Asks how SSH should reach cluster nodes, re-asking until the answer is a known transport.
+     * Empty input keeps [current]. The value is not secret, so unlike [promptForUpdate] it is
+     * shown unmasked.
+     */
+    private fun promptForSshTransport(current: SshTransport): SshTransport {
+        eventBus.emit(Event.Setup.SshTransportConfigHeader)
+        val choices = SshTransport.entries.map { it.configValue }
+        val question = "SSH transport (${choices.joinToString(", ")})? [${current.configValue}]"
+
+        while (true) {
+            val answer = prompter.prompt(question, "")
+            if (answer.isBlank()) return current
+            SshTransport.parse(answer)?.let { return it }
+            eventBus.emit(Event.Setup.InvalidSshTransport(answer, choices))
+        }
+    }
+
+    /** The transport already saved in [existingConfig], or null when absent or unrecognized. */
+    private fun existingSshTransport(existingConfig: Map<String, Any>): SshTransport? =
+        (existingConfig["sshTransport"] as? String)?.let { SshTransport.parse(it) }
 
     /**
      * Prompts for a field update, showing masked current value.

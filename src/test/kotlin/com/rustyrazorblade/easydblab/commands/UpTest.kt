@@ -6,11 +6,14 @@ import com.rustyrazorblade.easydblab.configuration.Arch
 import com.rustyrazorblade.easydblab.configuration.ClusterState
 import com.rustyrazorblade.easydblab.configuration.InitConfig
 import com.rustyrazorblade.easydblab.configuration.ServerType
+import com.rustyrazorblade.easydblab.configuration.SshTransport
 import com.rustyrazorblade.easydblab.configuration.TelemetryRedirect
+import com.rustyrazorblade.easydblab.configuration.User
 import com.rustyrazorblade.easydblab.kernel.PicoCommand
 import com.rustyrazorblade.easydblab.services.K3sSetupResult
 import com.rustyrazorblade.easydblab.services.LocalTailscaleState
 import com.rustyrazorblade.easydblab.services.ProvisioningResult
+import com.rustyrazorblade.easydblab.services.SsmTool
 import com.rustyrazorblade.easydblab.services.TailscaleApiException
 import com.rustyrazorblade.easydblab.services.TailscaleAuthKey
 import com.rustyrazorblade.easydblab.services.TailscaleService
@@ -30,6 +33,9 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import software.amazon.awssdk.services.iam.IamClient
+import software.amazon.awssdk.services.iam.model.IamException
+import software.amazon.awssdk.services.iam.model.PutRolePolicyRequest
 
 /**
  * Tests for [Up], the command that provisions and configures the complete cluster.
@@ -327,11 +333,18 @@ class UpTest : UpTestFixture() {
     }
 
     @Test
-    fun `up aborts before provisioning when reapplying the S3 policy fails`() {
-        whenever(mockS3BucketService.attachS3Policy(any())).thenThrow(RuntimeException("access denied"))
+    fun `up aborts before provisioning when reapplying the instance role policies fails`() {
+        // 403 because the IAM retry config does not retry permission errors, so the test fails fast.
+        val denied =
+            IamException
+                .builder()
+                .message("access denied")
+                .statusCode(403)
+                .build()
+        whenever(getKoin().get<IamClient>().putRolePolicy(any<PutRolePolicyRequest>())).thenThrow(denied)
 
         assertThatThrownBy { newUp().execute() }
-            .isInstanceOf(RuntimeException::class.java)
+            .isInstanceOf(IamException::class.java)
             .hasMessageContaining("access denied")
 
         verify(mockClusterProvisioningService, never()).provisionAll(any(), any(), any(), any())
@@ -520,4 +533,48 @@ class UpTest : UpTestFixture() {
         assertThat(probedTargets).hasSize(Constants.Tailscale.REACHABILITY_MAX_ATTEMPTS)
         verify(mockK3sClusterService, never()).setupCluster(any())
     }
+
+    // =========================================================================
+    // SSM transport pre-flight
+    //
+    // Under the ssm transport every SSH connection, the readiness wait included, is opened by the
+    // AWS CLI and the Session Manager plugin, so a machine without them must stop before AWS is
+    // touched rather than after a five-minute readiness timeout.
+    // =========================================================================
+
+    @Test
+    fun `up fails before touching AWS when the ssm transport's plugin is missing`() {
+        overrideUser(ssmUser())
+        missingSsmTools = listOf(SsmTool.SessionManagerPlugin)
+
+        assertThatThrownBy { newUp().execute() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("'session-manager-plugin'")
+            .hasMessageNotContaining("'aws'")
+
+        // SsmToolsMissing is an error event, so the install hint goes to the error stream.
+        assertThat(outputHandler.errors.joinToString("\n") { it.first }).contains("brew install --cask session-manager-plugin")
+        verify(mockS3BucketService, never()).ensureAccountBucket(any())
+        verify(mockClusterProvisioningService, never()).provisionAll(any(), any(), any(), any())
+    }
+
+    @Test
+    fun `up provisions over ssm when the local tools are present`() {
+        overrideUser(ssmUser())
+
+        assertThatCode { newUp().execute() }.doesNotThrowAnyException()
+
+        assertThat(localSsmToolingQueries).isEqualTo(1)
+    }
+
+    @Test
+    fun `up never checks for SSM tools under the direct transport`() {
+        missingSsmTools = SsmTool.entries
+
+        assertThatCode { newUp().execute() }.doesNotThrowAnyException()
+
+        assertThat(localSsmToolingQueries).isZero()
+    }
+
+    private fun ssmUser(): User = getKoin().get<User>().copy(sshTransport = SshTransport.Ssm)
 }

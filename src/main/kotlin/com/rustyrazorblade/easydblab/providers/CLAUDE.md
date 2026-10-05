@@ -30,12 +30,17 @@ providers/
 │   ├── DockerModule.kt
 │   ├── DockerClientProvider.kt
 │   └── DefaultDockerClientProvider.kt
-└── ssh/                    # SSH connection providers
-    ├── SSHModule.kt
-    ├── SSHConnectionProvider.kt
-    ├── DefaultSSHConnectionProvider.kt
-    ├── RemoteOperationsService.kt
-    └── DefaultRemoteOperationsService.kt
+├── ssh/                    # SSH connection providers
+│   ├── SSHModule.kt
+│   ├── SSHConnectionProvider.kt
+│   ├── DefaultSSHConnectionProvider.kt
+│   ├── SshRoute.kt        # How each SSH transport reaches a node (DirectSshRoute)
+│   ├── RemoteOperationsService.kt
+│   └── DefaultRemoteOperationsService.kt
+└── ssm/                    # SSM Session Manager SSH transport
+    ├── SsmModule.kt
+    ├── SsmSessionCommand.kt # `aws ssm start-session` command lines + credentials
+    └── SsmSshRoute.kt       # The `ssm` SshRoute: ProxyCommands + per-instance port forwards
 ```
 
 ## What Belongs Here vs `services/aws/`
@@ -94,6 +99,38 @@ val pods = pollUntil("wait-for-pod", maxAttempts = 10, interval = Duration.ofSec
 - `SSHConnectionProvider` — manages connection pool, auto-reconnects, keepalive
 - `RemoteOperationsService` — high-level SSH ops (execute, upload, download)
 - Registered in `SSHModule.kt`: provider as **singleton**, remote ops as **factory**
+
+### SSH Transport (`direct` / `ssm`)
+
+The profile's `User.sshTransport` decides how a TCP connection to a node's port 22 is made; SSH
+itself is the same either way. It is read from the profile at runtime, never snapshotted into
+`state.json`, because clusters are provisioned identically under both transports.
+
+The transport is decided in exactly one place: the `SshRoute` binding in `SSHModule.kt`
+(`DirectSshRoute` or `ssm/SsmSshRoute`). Everything else asks the route; do not add another
+`when (sshTransport)` elsewhere. The only other reader is `up`'s local-tooling preflight.
+
+- **OpenSSH paths** (the SOCKS tunnel, every `env.sh` helper) use `sshConfig`.
+  `ClusterConfigurationService` writes `route.proxyCommand(host)` into each `Host` block (and
+  into the fallback config `env.sh` writes when `sshConfig` is missing). Under `ssm` that is
+  `aws ssm start-session --document-name AWS-StartSSHSession`. The `Hostname` line must stay
+  directly after `Host`, because `env.sh` reads it with `grep -A 1`.
+  Under `ssm` the config also carries global `ServerAliveInterval`/`ServerAliveCountMax`, because
+  Session Manager drops a session after 20 idle minutes and a quiet SOCKS tunnel would otherwise die.
+- **The in-process MINA client** cannot run a `ProxyCommand`. `DefaultSSHConnectionProvider`
+  dials `route.endpoint(host)`: the public IP under `direct`, or under `ssm` a loopback port
+  forwarded by an `AWS-StartPortForwardingSession` process (one per instance per JVM).
+- Both paths build their command lines with `ssm/SsmSessionCommandBuilder`, so region and
+  credentials cannot drift. Static keys reach the AWS CLI through the profile's
+  `AWSCredentialsManager` file (`AWS_SHARED_CREDENTIALS_FILE`), never as environment variables
+  written into `sshConfig`.
+- A forward that fails to start throws `IOException`, which `up`'s SSH-readiness retry already
+  retries. That retry covers the window before a fresh node's SSM agent registers.
+- Forward processes, including the `session-manager-plugin` child, are stopped by `SsmSshRoute`'s
+  JVM shutdown hook. Nothing calls `SSHConnectionProvider.stop()` in production today; if
+  something starts to, it closes the route too.
+- `Host.instanceId` is required under `ssm`. Any new place that builds a `Host` must populate it
+  (`ClusterHost.toHost()` does).
 
 ### Credential Redaction Is A Boundary, Not A Call-Site Convention
 
