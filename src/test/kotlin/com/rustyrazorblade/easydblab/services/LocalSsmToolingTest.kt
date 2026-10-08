@@ -5,14 +5,16 @@ import org.junit.jupiter.api.Test
 import java.time.Duration
 
 /**
- * Tests for [DefaultLocalSsmTooling]: which runner outcomes count as a missing tool. How a real
+ * Tests for [DefaultLocalSsmTooling]: how each runner outcome maps to a [SsmToolFault]. How a real
  * process maps to those outcomes is covered by [LocalCliRunnerTest].
  */
 class LocalSsmToolingTest {
+    private val timeout = Duration.ofSeconds(1)
+
     private fun toolingWhere(results: Map<String, LocalCliResult>) =
         DefaultLocalSsmTooling(
             runner = { command, _ -> results.getValue(command.first()) },
-            timeout = Duration.ofSeconds(1),
+            timeout = timeout,
         )
 
     @Test
@@ -25,11 +27,11 @@ class LocalSsmToolingTest {
                 ),
             )
 
-        assertThat(tooling.missingTools()).isEmpty()
+        assertThat(tooling.faults()).isEmpty()
     }
 
     @Test
-    fun `a binary that is not on the PATH is missing`() {
+    fun `a binary that is not on the PATH is reported as not found`() {
         val tooling =
             toolingWhere(
                 mapOf(
@@ -38,19 +40,22 @@ class LocalSsmToolingTest {
                 ),
             )
 
-        assertThat(tooling.missingTools()).containsExactly(SsmTool.SessionManagerPlugin)
+        assertThat(tooling.faults()).containsExactly(SsmToolFault.NotFound(SsmTool.SessionManagerPlugin))
     }
 
     @Test
-    fun `a tool that exits non-zero or hangs is missing`() {
+    fun `a tool that exits non-zero keeps its output, and one that hangs keeps the timeout`() {
         val tooling =
             toolingWhere(
                 mapOf(
-                    "aws" to LocalCliResult.Completed(1, ""),
+                    "aws" to LocalCliResult.Completed(1, "", "dyld: Library not loaded: libpython3.11.dylib"),
                     "session-manager-plugin" to LocalCliResult.TimedOut,
                 ),
             )
 
-        assertThat(tooling.missingTools()).containsExactly(SsmTool.AwsCli, SsmTool.SessionManagerPlugin)
+        assertThat(tooling.faults()).containsExactly(
+            SsmToolFault.Failed(SsmTool.AwsCli, 1, "dyld: Library not loaded: libpython3.11.dylib"),
+            SsmToolFault.TimedOut(SsmTool.SessionManagerPlugin, timeout),
+        )
     }
 }

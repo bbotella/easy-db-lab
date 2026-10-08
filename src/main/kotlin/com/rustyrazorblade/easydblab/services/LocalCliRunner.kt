@@ -9,10 +9,16 @@ private val log = KotlinLogging.logger {}
 
 /** Outcome of one short-lived local CLI invocation. */
 sealed interface LocalCliResult {
-    /** The CLI ran to completion. */
+    /**
+     * The CLI ran to completion.
+     *
+     * @property stderr kept apart from [stdout], so a warning on stderr cannot corrupt output a
+     *   caller parses, such as `tailscale status --json`
+     */
     data class Completed(
         val exitCode: Int,
         val stdout: String,
+        val stderr: String = "",
     ) : LocalCliResult
 
     /** The executable is not on this machine's PATH. */
@@ -60,7 +66,11 @@ object DefaultLocalCliRunner : LocalCliRunner {
                 process.destroyForcibly()
                 LocalCliResult.TimedOut
             } else {
-                LocalCliResult.Completed(process.exitValue(), process.inputStream.bufferedReader().readText())
+                LocalCliResult.Completed(
+                    process.exitValue(),
+                    process.inputStream.bufferedReader().readText(),
+                    process.errorStream.bufferedReader().readText(),
+                )
             }
         } catch (e: IOException) {
             log.debug(e) { "Could not run ${command.joinToString(" ")}" }

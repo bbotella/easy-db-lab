@@ -65,7 +65,15 @@ class ClusterConfigurationServiceTest {
     }
 
     private val ssmRoute =
-        SsmSshRoute(SsmSessionCommandBuilder("us-west-2", { SsmCliCredentials.NamedProfile("lab-profile") }), 22)
+        SsmSshRoute(
+            SsmSessionCommandBuilder(
+                "us-west-2",
+                { SsmCliCredentials.NamedProfile("lab-profile") },
+                sshProxyWrapper = { "/profiles/lab/edl-ssm-proxy" },
+            ),
+            22,
+            { },
+        )
 
     /** A service whose hosts are routed over SSM, as under a profile with the `ssm` transport. */
     private val ssmService by lazy { DefaultClusterConfigurationService(userConfigProvider, eventBus, ssmRoute) }
@@ -170,6 +178,16 @@ class ClusterConfigurationServiceTest {
             assertThat(lines.subList(0, firstHost)).contains("ServerAliveInterval 30", "ServerAliveCountMax 3")
         }
 
+        /** Keepalives start only after auth, so a session that passes no data needs its own bound. */
+        @Test
+        fun `an ssm route bounds the wait for the server's banner for every host`() {
+            ssmService.writeSshAndEnvironmentFiles(tempDir, createClusterState(), createUserConfig())
+
+            val lines = File(tempDir.toFile(), "sshConfig").readLines()
+            val firstHost = lines.indexOfFirst { it.startsWith("Host ") }
+            assertThat(lines.subList(0, firstHost)).contains("ConnectTimeout 30")
+        }
+
         @Test
         fun `the env sh fallback config routes hosts the same way as sshConfig`() {
             ssmService.writeSshAndEnvironmentFiles(tempDir, createClusterState(), createUserConfig())
@@ -183,6 +201,7 @@ class ClusterConfigurationServiceTest {
 
             assertThat(File(tempDir.toFile(), "sshConfig").readText()).doesNotContain("ProxyCommand")
             assertThat(File(tempDir.toFile(), "sshConfig").readText()).doesNotContain("ServerAlive")
+            assertThat(File(tempDir.toFile(), "sshConfig").readText()).doesNotContain("ConnectTimeout")
             assertThat(File(tempDir.toFile(), "env.sh").readText()).doesNotContain("ProxyCommand")
         }
 
@@ -201,7 +220,7 @@ class ClusterConfigurationServiceTest {
         }
 
         private fun proxyLine(instanceId: String) =
-            " ProxyCommand aws ssm start-session --target $instanceId --document-name AWS-StartSSHSession " +
+            " ProxyCommand /profiles/lab/edl-ssm-proxy aws ssm start-session --target $instanceId --document-name AWS-StartSSHSession " +
                 "--parameters portNumber=%p --region us-west-2 --profile lab-profile"
 
         /** The lines of one `Host` block, from its `Host` line up to the blank line that ends it. */

@@ -76,25 +76,50 @@
       "Resource": "arn:aws:ecr:*:ACCOUNT_ID:repository/*"
     },
     {
-      "Sid": "SSMStartSession",
+      "Sid": "SSMStartSessionOnLabInstances",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:StartSession"
+      ],
+      "Resource": "arn:aws:ec2:*:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ssm:resourceTag/easy_cass_lab": "1"
+        }
+      }
+    },
+    {
+      "Sid": "SSMStartSessionDocuments",
       "Effect": "Allow",
       "Action": [
         "ssm:StartSession"
       ],
       "Resource": [
-        "arn:aws:ec2:*:ACCOUNT_ID:instance/*",
         "arn:aws:ssm:*::document/AWS-StartSSHSession",
         "arn:aws:ssm:*::document/AWS-StartPortForwardingSession"
       ]
     },
     {
-      "Sid": "SSMSessionLifecycle",
+      "Sid": "SSMOwnSessions",
       "Effect": "Allow",
       "Action": [
         "ssm:TerminateSession",
         "ssm:ResumeSession"
       ],
-      "Resource": "arn:aws:ssm:*:ACCOUNT_ID:session/*"
+      "Resource": "arn:aws:ssm:*:ACCOUNT_ID:session/*",
+      "Condition": {
+        "StringEquals": {
+          "ssm:resourceTag/aws:ssmmessages:session-id": "${aws:userid}"
+        }
+      }
+    },
+    {
+      "Sid": "SSMSessionDataChannel",
+      "Effect": "Allow",
+      "Action": [
+        "ssmmessages:OpenDataChannel"
+      ],
+      "Resource": "*"
     }
   ]
 }

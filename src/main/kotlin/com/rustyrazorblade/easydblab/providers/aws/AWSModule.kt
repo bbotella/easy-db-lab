@@ -204,10 +204,13 @@ val awsModule =
         }
 
         // Provide AWSResourceSetupService as singleton
+        single { InstanceRolePolicies(get()) }
+
         single {
             AWSResourceSetupService(
                 get<AWS>(),
                 get<EventBus>(),
+                get<InstanceRolePolicies>(),
             )
         }
 

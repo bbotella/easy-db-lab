@@ -27,6 +27,13 @@ class LocalCliRunnerTest {
     }
 
     @Test
+    fun `keeps stderr apart from stdout`() {
+        val result = DefaultLocalCliRunner.run(listOf("sh", "-c", "echo out; echo err >&2; exit 3"), Duration.ofSeconds(5))
+
+        assertThat(result).isEqualTo(LocalCliResult.Completed(3, "out\n", "err\n"))
+    }
+
+    @Test
     fun `kills a process that outlives the timeout`() {
         val result = DefaultLocalCliRunner.run(listOf("sleep", "30"), Duration.ofMillis(200))
 

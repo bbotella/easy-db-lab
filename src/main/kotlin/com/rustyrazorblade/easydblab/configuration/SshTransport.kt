@@ -27,11 +27,22 @@ enum class SshTransport(
     companion object {
         /**
          * Parses a prompt answer or profile value, ignoring case and surrounding whitespace; null if
-         * unrecognized. Also the profile file's decoder, so a hand-edited `SSM` reads the same as
-         * the prompt would accept it.
+         * unrecognized, so the setup prompt can ask again.
+         */
+        fun parse(value: String): SshTransport? = entries.firstOrNull { it.configValue.equals(value.trim(), ignoreCase = true) }
+
+        /**
+         * The profile file's decoder. Jackson is used only because [User] is still read with it.
+         * It accepts what [parse] accepts, so a hand-edited `SSM` reads the same as the prompt
+         * would take it, and rejects anything else rather than letting a typo fall back silently.
+         *
+         * @throws IllegalArgumentException naming [value] and the valid choices when it is not a transport
          */
         @JvmStatic
         @JsonCreator
-        fun parse(value: String): SshTransport? = entries.firstOrNull { it.configValue.equals(value.trim(), ignoreCase = true) }
+        fun fromProfile(value: String): SshTransport =
+            requireNotNull(parse(value)) {
+                "'$value' is not an SSH transport. Valid choices: ${entries.joinToString(", ") { it.configValue }}"
+            }
     }
 }

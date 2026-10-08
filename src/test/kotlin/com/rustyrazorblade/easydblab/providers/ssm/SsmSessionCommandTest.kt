@@ -49,9 +49,22 @@ internal class SsmSessionCommandTest {
         val command = builder.sshSession("i-0abc")
 
         assertThat(command.argv).endsWith("--profile", "default")
-        assertThat(command.environment).containsExactlyEntriesOf(
-            mapOf("AWS_SHARED_CREDENTIALS_FILE" to "/profiles/lab/awscredentials"),
-        )
+        assertThat(command.environment).containsEntry("AWS_SHARED_CREDENTIALS_FILE", "/profiles/lab/awscredentials")
+    }
+
+    /**
+     * The operator's own `~/.aws/config` may give `[default]` an SSO session, a `role_arn` or a
+     * `credential_process`, and the CLI would sign as that identity instead of the static keys.
+     */
+    @Test
+    fun `static credentials keep the operator's AWS config file out of the session`() {
+        val builder =
+            SsmSessionCommandBuilder("us-east-2", { SsmCliCredentials.CredentialsFile("/profiles/lab/awscredentials") })
+
+        val command = builder.portForwardSession("i-0abc", remotePort = 22, localPort = 40123)
+
+        assertThat(command.environment).containsEntry("AWS_CONFIG_FILE", "/dev/null")
+        assertThat(command.toShellCommand()).startsWith("env AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=")
     }
 
     @Test
@@ -71,7 +84,7 @@ internal class SsmSessionCommandTest {
         val rendered = builder.sshSession("i-0abc").toShellCommand()
 
         assertThat(rendered).isEqualTo(
-            "env AWS_SHARED_CREDENTIALS_FILE='/Users/a b/awscredentials' " +
+            "env AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE='/Users/a b/awscredentials' " +
                 "aws ssm start-session --target i-0abc --document-name AWS-StartSSHSession " +
                 "--parameters portNumber=%p --region us-west-2 --profile default",
         )

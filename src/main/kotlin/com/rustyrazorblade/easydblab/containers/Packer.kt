@@ -34,6 +34,7 @@ class Packer(
     var directory: String,
 ) : KoinComponent {
     private val docker: Docker by inject { parametersOf(context) }
+    private val packerImage: PackerImage by inject { parametersOf(docker) }
     private val eventBus: EventBus by inject()
     private val credentialsProvider: AwsCredentialsProvider by inject()
     private val user: User by inject()
@@ -225,7 +226,7 @@ class Packer(
         require(commands.isNotEmpty()) { "Commands cannot be empty" }
 
         // Resolved first, so a failed image build stops before Packer launches any instance.
-        val image = PackerImage(docker).ensure(user.sshTransport)
+        val image = packerImage.ensure(user.sshTransport)
 
         val args = commands.toMutableList()
 

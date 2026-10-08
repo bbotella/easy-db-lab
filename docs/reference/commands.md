@@ -414,6 +414,10 @@ easy-db-lab cassandra download-config [options]
 |--------|-------------|
 | `--version` | Version to download config for |
 
+The files land in a directory named for the version (for example `5.0/`) in the workspace. An
+existing directory is never overwritten: the command reports that it already exists and skips the
+download. Delete the directory to download it again.
+
 ### cassandra start
 
 Start Cassandra on all nodes.

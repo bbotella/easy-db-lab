@@ -41,6 +41,10 @@ object ClusterConfigWriter {
             // they hold the session open, and they make ssh exit promptly if it is dropped anyway.
             writer.appendLine("ServerAliveInterval ${Constants.Ssm.SSH_KEEPALIVE_INTERVAL_SECONDS}")
             writer.appendLine("ServerAliveCountMax ${Constants.Ssm.SSH_KEEPALIVE_COUNT_MAX}")
+            // Keepalives start only after authentication, so a session whose plugin connects but
+            // passes no data would hang ssh forever. ConnectTimeout bounds the wait for the server's
+            // banner, ProxyCommand included (checked on OpenSSH 9.6 and 10.3).
+            writer.appendLine("ConnectTimeout ${Constants.Ssm.SSH_CONNECT_TIMEOUT_SECONDS}")
         }
 
         // get each server type and get the hosts for type and add it to the sshConfig.

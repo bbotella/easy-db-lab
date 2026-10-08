@@ -10,14 +10,17 @@ import com.rustyrazorblade.easydblab.configuration.SshTransport
 import com.rustyrazorblade.easydblab.configuration.TelemetryRedirect
 import com.rustyrazorblade.easydblab.configuration.User
 import com.rustyrazorblade.easydblab.kernel.PicoCommand
+import com.rustyrazorblade.easydblab.providers.ssm.SsmForwardNotReadyException
 import com.rustyrazorblade.easydblab.services.K3sSetupResult
 import com.rustyrazorblade.easydblab.services.LocalTailscaleState
 import com.rustyrazorblade.easydblab.services.ProvisioningResult
 import com.rustyrazorblade.easydblab.services.SsmTool
+import com.rustyrazorblade.easydblab.services.SsmToolFault
 import com.rustyrazorblade.easydblab.services.TailscaleApiException
 import com.rustyrazorblade.easydblab.services.TailscaleAuthKey
 import com.rustyrazorblade.easydblab.services.TailscaleService
 import com.rustyrazorblade.easydblab.services.aws.CompactorService
+import org.apache.sshd.common.SshException
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatCode
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -36,6 +39,7 @@ import org.mockito.kotlin.whenever
 import software.amazon.awssdk.services.iam.IamClient
 import software.amazon.awssdk.services.iam.model.IamException
 import software.amazon.awssdk.services.iam.model.PutRolePolicyRequest
+import java.io.IOException
 
 /**
  * Tests for [Up], the command that provisions and configures the complete cluster.
@@ -332,6 +336,21 @@ class UpTest : UpTestFixture() {
         assertThat(outputHandler.messages.count { it == "Node labeling complete" }).isEqualTo(1)
     }
 
+    /** A role made by an older version must carry the Session Manager policy before any node launches under it. */
+    @Test
+    fun `up puts the Session Manager policy on the instance role before provisioning`() {
+        val iam = getKoin().get<IamClient>()
+
+        newUp().execute()
+
+        val put = argumentCaptor<PutRolePolicyRequest>()
+        val order = inOrder(iam, mockClusterProvisioningService)
+        order.verify(iam, atLeastOnce()).putRolePolicy(put.capture())
+        order.verify(mockClusterProvisioningService).provisionAll(any(), any(), any(), any())
+        assertThat(put.allValues.map { it.roleName() to it.policyName() })
+            .contains(Constants.AWS.Roles.EC2_INSTANCE_ROLE to Constants.AWS.InlinePolicies.SESSION_MANAGER)
+    }
+
     @Test
     fun `up aborts before provisioning when reapplying the instance role policies fails`() {
         // 403 because the IAM retry config does not retry permission errors, so the test fails fast.
@@ -432,14 +451,68 @@ class UpTest : UpTestFixture() {
         assertThat(sshCheckedAliases).contains("control0", "db0")
     }
 
+    /**
+     * A fresh node's SSM agent registers some time after the instance boots, and until then every
+     * port forward fails with `TargetNotConnected`. `up` must keep waiting through that, not abort
+     * on the first failure, and it must say why it is still waiting.
+     */
+    @Test
+    fun `up keeps waiting while the control node's ssm agent has not registered yet`() {
+        sshFailureAlias = "control0"
+        sshFailuresRemaining = 3
+        sshFailureException =
+            SsmForwardNotReadyException(
+                "i-control0",
+                "An error occurred (TargetNotConnected) when calling the StartSession operation",
+                "SSM port forward to i-control0:22 exited (exit code 254) before it was ready.",
+            )
+
+        assertThatCode { newUp().execute() }.doesNotThrowAnyException()
+
+        assertThat(sshCheckedAliases.count { it == "control0" }).isEqualTo(4)
+        val retries = outputHandler.messages.filter { it.startsWith("SSH still not up yet") }
+        assertThat(retries).hasSize(3).allMatch { it.contains("exited (exit code 254) before it was ready") }
+        verify(mockK3sClusterService).setupCluster(any())
+    }
+
+    /**
+     * Under the direct transport, MINA reports a node whose sshd is not up yet as SshException,
+     * a checked exception. `up` must retry it rather than abort on the first refused connection.
+     */
+    @Test
+    fun `up keeps waiting while a direct-transport node refuses ssh connections`() {
+        sshFailureAlias = "control0"
+        sshFailuresRemaining = 3
+        sshFailureException = SshException("Failed (ConnectException) to execute: Connection refused")
+
+        assertThatCode { newUp().execute() }.doesNotThrowAnyException()
+
+        assertThat(sshCheckedAliases.count { it == "control0" }).isEqualTo(4)
+        assertThat(outputHandler.messages.filter { it.startsWith("SSH still not up yet") })
+            .hasSize(3)
+            .allMatch { it.contains("Connection refused") }
+        verify(mockK3sClusterService).setupCluster(any())
+    }
+
+    /** An IOException that is not a connection failure will not clear by waiting, so `up` stops at once. */
+    @Test
+    fun `up fails at once on an IOException that is not an ssh connection failure`() {
+        sshFailureAlias = "control0"
+        sshFailureException = IOException("No such file or directory")
+
+        assertThatThrownBy { newUp().execute() }
+            .isInstanceOf(IOException::class.java)
+            .hasMessageContaining("No such file or directory")
+
+        assertThat(sshCheckedAliases.count { it == "control0" }).isEqualTo(1)
+        verify(mockK3sClusterService, never()).setupCluster(any())
+    }
+
     @Test
     fun `up aborts when the control node never accepts ssh`() {
         sshFailureAlias = "control0"
-        // A non-retryable exception type: RetryUtil's SSH retry config only retries
-        // SshException/IOException, so this fails on the first attempt instead of exhausting
-        // the real 30-attempt / 10s-interval retry window, which would make this test take
-        // minutes. The behavior under test — that a control-node SSH failure aborts `up` — is
-        // exercised either way; only the wait time differs.
+        // A non-retryable exception type, so this fails on the first attempt: the behavior under
+        // test is that a control-node SSH failure aborts `up`, not the length of the retry window.
         sshFailureException = IllegalStateException("connection refused")
 
         assertThatThrownBy { newUp().execute() }
@@ -545,7 +618,7 @@ class UpTest : UpTestFixture() {
     @Test
     fun `up fails before touching AWS when the ssm transport's plugin is missing`() {
         overrideUser(ssmUser())
-        missingSsmTools = listOf(SsmTool.SessionManagerPlugin)
+        ssmToolFaults = listOf(SsmToolFault.NotFound(SsmTool.SessionManagerPlugin))
 
         assertThatThrownBy { newUp().execute() }
             .isInstanceOf(IllegalStateException::class.java)
@@ -555,6 +628,22 @@ class UpTest : UpTestFixture() {
         // SsmToolsMissing is an error event, so the install hint goes to the error stream.
         assertThat(outputHandler.errors.joinToString("\n") { it.first }).contains("brew install --cask session-manager-plugin")
         verify(mockS3BucketService, never()).ensureAccountBucket(any())
+        verify(mockClusterProvisioningService, never()).provisionAll(any(), any(), any(), any())
+    }
+
+    /** An installed tool that fails needs its own error read, not an install hint that would send the operator the wrong way. */
+    @Test
+    fun `up shows a failing tool's own output and no install hint`() {
+        overrideUser(ssmUser())
+        ssmToolFaults = listOf(SsmToolFault.Failed(SsmTool.AwsCli, 1, "dyld: Library not loaded: libpython3.11.dylib"))
+
+        assertThatThrownBy { newUp().execute() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("'aws'")
+
+        val errors = outputHandler.errors.joinToString("\n") { it.first }
+        assertThat(errors).contains("'aws --version' exited 1: dyld: Library not loaded: libpython3.11.dylib")
+        assertThat(errors).doesNotContain("brew install")
         verify(mockClusterProvisioningService, never()).provisionAll(any(), any(), any(), any())
     }
 
@@ -569,7 +658,7 @@ class UpTest : UpTestFixture() {
 
     @Test
     fun `up never checks for SSM tools under the direct transport`() {
-        missingSsmTools = SsmTool.entries
+        ssmToolFaults = SsmTool.entries.map { SsmToolFault.NotFound(it) }
 
         assertThatCode { newUp().execute() }.doesNotThrowAnyException()
 

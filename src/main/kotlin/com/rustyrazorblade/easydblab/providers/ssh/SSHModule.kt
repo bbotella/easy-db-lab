@@ -26,7 +26,7 @@ val sshModule =
             val sshPort = get<SSHConfiguration>().sshPort
             when (get<User>().sshTransport) {
                 SshTransport.Direct -> DirectSshRoute(sshPort)
-                SshTransport.Ssm -> SsmSshRoute(get(), sshPort)
+                SshTransport.Ssm -> SsmSshRoute(get(), sshPort, get())
             }
         }
 

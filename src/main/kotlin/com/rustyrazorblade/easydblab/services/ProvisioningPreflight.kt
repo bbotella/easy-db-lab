@@ -28,6 +28,31 @@ class ProvisioningPreflight(
         verifyLocalSsmTooling()
     }
 
+    private fun toEventFault(fault: SsmToolFault): Event.Ssh.SsmToolsMissing.ToolFault {
+        val executable = fault.tool.executable
+        return when (fault) {
+            is SsmToolFault.NotFound ->
+                Event.Ssh.SsmToolsMissing.ToolFault(
+                    executable,
+                    Event.Ssh.SsmToolsMissing.Reason.NotFound,
+                    installHint = fault.tool.installHint,
+                )
+            is SsmToolFault.Failed ->
+                Event.Ssh.SsmToolsMissing.ToolFault(
+                    executable,
+                    Event.Ssh.SsmToolsMissing.Reason.Failed,
+                    exitCode = fault.exitCode,
+                    output = fault.output,
+                )
+            is SsmToolFault.TimedOut ->
+                Event.Ssh.SsmToolsMissing.ToolFault(
+                    executable,
+                    Event.Ssh.SsmToolsMissing.Reason.TimedOut,
+                    timeoutSeconds = fault.timeout.toSeconds(),
+                )
+        }
+    }
+
     /**
      * Validates that the programs the `ssm` SSH transport needs are on THIS machine.
      *
@@ -38,14 +63,14 @@ class ProvisioningPreflight(
     private fun verifyLocalSsmTooling() {
         if (userConfig.sshTransport != SshTransport.Ssm) return
 
-        val missing = localSsmTooling.missingTools()
-        if (missing.isEmpty()) return
+        val faults = localSsmTooling.faults()
+        if (faults.isEmpty()) return
 
-        eventBus.emit(Event.Ssh.SsmToolsMissing(missing.associate { it.executable to it.installHint }))
+        eventBus.emit(Event.Ssh.SsmToolsMissing(faults.map(::toEventFault)))
         error(
             "This profile's SSH transport is ssm, but " +
-                missing.joinToString(" and ") { "'${it.executable}'" } +
-                " could not be run on this machine. Install the missing tools, then run 'easy-db-lab up' again.",
+                faults.joinToString(" and ") { "'${it.tool.executable}'" } +
+                " could not be run on this machine. Fix the tools listed above, then run 'easy-db-lab up' again.",
         )
     }
 

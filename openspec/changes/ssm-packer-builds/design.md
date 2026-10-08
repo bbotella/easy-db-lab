@@ -22,7 +22,6 @@ PATH. The stock image lacks the plugin.
 **Non-Goals:**
 - Removing the Packer security group's port-22 rule (harmless under `ssm`).
 - Publishing a prebuilt image to a registry.
-- Pinning the plugin version. The tool is for fast iteration; `latest` from AWS is acceptable.
 
 ## Decisions
 
@@ -36,16 +35,20 @@ launches the instance, starts the session, and dials it, all inside the containe
 
 ### A derived image, built locally from a packaged Dockerfile
 
-A Dockerfile resource extends `hashicorp/packer:full` with the plugin. It downloads AWS's
-official Linux `.deb`, unpacks it with `ar` and `tar` (Alpine has no `dpkg`), and installs the
+A Dockerfile resource extends the Packer image, pinned by tag and digest
+(`hashicorp/packer:full-1.16.1@sha256:...`), with the plugin. It downloads a pinned version of
+AWS's official Linux `.deb` (`1.2.835.0`), checks it against a pinned SHA-256 for its
+architecture with `sha256sum -c`, unpacks it with `ar` and `tar` (Alpine has no `dpkg`), and installs the
 binary. `gcompat` is added because the plugin is built against glibc. The final `RUN` executes
 `session-manager-plugin --version`, so an image whose plugin cannot run fails at build time, not
 mid-AMI-build. The architecture is chosen with `uname -m` rather than `TARGETARCH`, because the
 classic builder API that docker-java and Podman use does not reliably set build arguments.
 
 The image is tagged `easy-db-lab/packer-ssm:<first 12 hex of SHA-256 of the Dockerfile>`. If that
-tag exists locally it is reused. A changed Dockerfile produces a new tag, and so a rebuild. The
-build always pulls its base, so a rebuild picks up the current stock Packer image.
+tag exists locally it is reused. A changed Dockerfile produces a new tag, and so a rebuild. Because
+the base and the plugin are pinned, every rebuild of one Dockerfile gets the same bytes; upgrading
+either means editing the Dockerfile (tag and digest, or version and both checksums), which also
+changes the image tag.
 
 Building locally keeps the tool working from a Homebrew install: the Dockerfile ships in the jar,
 and nothing depends on a source checkout or a registry the tool would have to publish to.
@@ -60,8 +63,9 @@ argument unset, so `direct` builds keep Packer's own default. Under `ssm`, `Pack
 ### Image selection is one small class
 
 `PackerImage` decides which image Packer runs in for a transport, and makes sure that image is
-present (pull for `direct`, build-if-missing for `ssm`). `Packer` asks it for an image tag and
-otherwise runs the container exactly as before.
+present (pull for `direct`, build-if-missing for `ssm`). It is a Koin factory in `dockerModule`,
+given the caller's `Docker`, and `Packer` injects it like its other collaborators. `Packer` asks
+it for an image tag and otherwise runs the container exactly as before.
 
 ## Risks / Trade-offs
 
@@ -71,5 +75,6 @@ otherwise runs the container exactly as before.
   Packer's own AWS calls, so this adds no new failure mode, but the error appears at a new step.
 - **Plugin output on musl:** if the glibc-built plugin does not run under `gcompat`, the image
   build fails on its `--version` check, before any AWS resource is created.
-- **Stale derived image:** the image is reused until the Dockerfile changes, so it can lag the
-  stock Packer image. That is acceptable for a test tool; deleting the image forces a rebuild.
+- **Pinned versions age:** the derived image stays on the pinned Packer and plugin versions until
+  someone edits the Dockerfile. That is the price of reproducible bytes; upgrading is a one-file
+  change.

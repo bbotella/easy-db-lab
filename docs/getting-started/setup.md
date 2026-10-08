@@ -51,7 +51,7 @@ The AWS profile name is asked **first**. If you provide one, the access key and 
 During setup, the following AWS resources are created:
 
 - **EC2 Key Pair**: For SSH access to instances
-- **IAM Role**: For instance permissions (`EasyDBLabEC2Role`), including the AWS managed `AmazonSSMManagedInstanceCore` policy so every node can be reached over SSM Session Manager
+- **IAM Role**: For instance permissions (`EasyDBLabEC2Role`), including a minimal inline Session Manager policy so every node can be reached over SSM Session Manager
 - **Packer VPC**: Infrastructure for building AMIs
 - **AMI** (if needed): Takes 10-15 minutes to build
 

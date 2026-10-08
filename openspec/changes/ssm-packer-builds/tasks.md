@@ -5,7 +5,7 @@
 
 ## 2. SSM-capable Packer image
 
-- [x] 2.1 Packaged Dockerfile resource: `hashicorp/packer:full` + `gcompat` + the Session Manager plugin from AWS's `.deb`, with a `--version` check
+- [x] 2.1 Packaged Dockerfile resource: `hashicorp/packer:full-1.16.1` pinned by digest + `gcompat` + the Session Manager plugin `1.2.835.0` from AWS's `.deb`, verified against a pinned SHA-256 per architecture, with a `--version` check
 - [x] 2.2 `DockerClientInterface.buildImage` / `DefaultDockerClient` (docker-java `buildImageCmd`, pull base)
 - [x] 2.3 `Docker.buildImage(dockerfile, imageTag)` writing a temp build context, with typed build events
 - [x] 2.4 `PackerImage`: image per transport; content-hash tag; build only when missing
@@ -13,6 +13,7 @@
 ## 3. Packer runner
 
 - [x] 3.1 `Packer` runs in `PackerImage`'s image and passes `-var ssh_interface=session_manager` under `ssm`
+- [x] 3.2 `PackerImage` registered in Koin (`dockerModule`) and injected into `Packer`
 
 ## 4. Tests
 

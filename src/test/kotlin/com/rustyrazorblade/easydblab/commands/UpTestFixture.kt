@@ -38,7 +38,7 @@ import com.rustyrazorblade.easydblab.services.ProvisioningPreflight
 import com.rustyrazorblade.easydblab.services.ProvisioningResult
 import com.rustyrazorblade.easydblab.services.RecordingAnnotationMirror
 import com.rustyrazorblade.easydblab.services.RegistryService
-import com.rustyrazorblade.easydblab.services.SsmTool
+import com.rustyrazorblade.easydblab.services.SsmToolFault
 import com.rustyrazorblade.easydblab.services.aws.AMIResolver
 import com.rustyrazorblade.easydblab.services.aws.AWSResourceSetupService
 import com.rustyrazorblade.easydblab.services.aws.AccountBucketSetup
@@ -99,8 +99,8 @@ abstract class UpTestFixture : BaseKoinTest() {
     protected var localTailscaleState: LocalTailscaleState = LocalTailscaleState.Connected
     protected var localTailscaleQueries = 0
 
-    /** tools the fake LocalSsmTooling reports missing, and how many times `up` asked */
-    protected var missingSsmTools: List<SsmTool> = emptyList()
+    /** faults the fake LocalSsmTooling reports, and how many times `up` asked */
+    protected var ssmToolFaults: List<SsmToolFault> = emptyList()
     protected var localSsmToolingQueries = 0
 
     /**
@@ -111,9 +111,13 @@ abstract class UpTestFixture : BaseKoinTest() {
     protected var tailnetProbesBeforeReachable = 0
     protected val probedTargets = mutableListOf<String>()
 
-    /** when non-null, remoteOps.executeRemotely throws this for the given host alias */
+    /**
+     * when non-null, remoteOps.executeRemotely throws this for the given host alias, at most
+     * [sshFailuresRemaining] times and then answers normally
+     */
     protected var sshFailureAlias: String? = null
     protected var sshFailureException: Exception? = null
+    protected var sshFailuresRemaining = Int.MAX_VALUE
     protected val sshCheckedAliases = mutableListOf<String>()
 
     /** Cilium node-fix paths the fake SSH reports missing, by host alias, and every alias asked */
@@ -168,7 +172,7 @@ abstract class UpTestFixture : BaseKoinTest() {
             single<K3sClusterService> { mock<K3sClusterService>().also { mockK3sClusterService = it } }
             single<CiliumService> { mock<CiliumService>().also { mockCiliumService = it } }
             single { CiliumNodeImageCheck(get()) }
-            single { AWSResourceSetupService(get(), get()) }
+            single { AWSResourceSetupService(get(), get(), get()) }
             single { ProvisioningPreflight(get(), get(), get(), get()) }
             single { AccountBucketSetup(get(), get(), get(), get(), get(), get()) }
         }
@@ -194,7 +198,7 @@ abstract class UpTestFixture : BaseKoinTest() {
             single<LocalSsmTooling> {
                 LocalSsmTooling {
                     localSsmToolingQueries++
-                    missingSsmTools
+                    ssmToolFaults
                 }
             }
             single<TcpReachabilityProbe> {
@@ -270,9 +274,9 @@ abstract class UpTestFixture : BaseKoinTest() {
         command: String,
     ): Response {
         if (command == "echo 1") sshCheckedAliases.add(host.alias)
-        val failingAlias = sshFailureAlias
-        val failure = sshFailureException
-        if (failingAlias != null && failure != null && host.alias == failingAlias) {
+        val failure = sshFailureException?.takeIf { host.alias == sshFailureAlias }
+        if (failure != null && sshFailuresRemaining > 0) {
+            sshFailuresRemaining--
             throw failure
         }
         if (command.contains(Constants.Cilium.NODE_FIX_FILES.first())) {
@@ -288,12 +292,13 @@ abstract class UpTestFixture : BaseKoinTest() {
         invokedCommandNames.clear()
         localTailscaleState = LocalTailscaleState.Connected
         localTailscaleQueries = 0
-        missingSsmTools = emptyList()
+        ssmToolFaults = emptyList()
         localSsmToolingQueries = 0
         tailnetReachable = true
         probedTargets.clear()
         sshFailureAlias = null
         sshFailureException = null
+        sshFailuresRemaining = Int.MAX_VALUE
         sshCheckedAliases.clear()
         missingCiliumFixes.clear()
         ciliumFixCheckedAliases.clear()
@@ -421,11 +426,12 @@ abstract class UpTestFixture : BaseKoinTest() {
         )
 
     /**
-     * Constructs an [Up] with a zero SSH startup delay and a zero tailnet retry interval so tests
-     * do not sit through the production pauses. Both only affect wall-clock timing, so removing
-     * them does not change any behavior under test.
+     * Constructs an [Up] with a zero SSH startup delay, a zero tailnet retry interval and a 1ms
+     * SSH readiness retry interval so tests do not sit through the production pauses. All three
+     * only affect wall-clock timing, so shortening them does not change any behavior under test.
      */
-    protected fun newUp(): Up = Up(sshStartupDelay = Duration.ZERO, tailnetRetryInterval = Duration.ZERO)
+    protected fun newUp(): Up =
+        Up(sshStartupDelay = Duration.ZERO, tailnetRetryInterval = Duration.ZERO, sshRetryInterval = Duration.ofMillis(1))
 
     protected fun overrideUser(user: User) {
         whenever(mockClusterStateManager.load()).thenReturn(happyState())

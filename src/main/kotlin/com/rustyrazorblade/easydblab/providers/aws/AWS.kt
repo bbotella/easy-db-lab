@@ -473,9 +473,8 @@ class AWS(
     }
 
     /**
-     * Creates an IAM role with EC2 trust policy, attaches an inline S3 policy granting access to all
-     * easy-db-lab buckets, and attaches the managed SSM core policy so instances can be reached over
-     * Session Manager. Idempotent.
+     * Creates an IAM role with EC2 trust policy and attaches an inline S3 policy granting
+     * access to all easy-db-lab buckets. Idempotent.
      *
      * @param roleName The name of the IAM role to create
      * @return The role name
@@ -488,7 +487,7 @@ class AWS(
         log.info { "Setting up IAM role and instance profile: $roleName" }
 
         createIamRole(roleName, AWSPolicy.Trust.EC2Service.toJson(), "IAM role for easy-db-lab with S3 access")
-        attachInstanceRolePolicies(roleName)
+        attachS3Policy(roleName)
         createIamInstanceProfile(roleName, roleName)
 
         log.info { "Validating IAM role setup: $roleName" }
@@ -508,17 +507,6 @@ class AWS(
     }
 
     /**
-     * Applies the cluster instance role's policy set: the inline S3 access policy and the managed SSM
-     * core policy. Both steps are idempotent, so this completes a new role and upgrades an existing one.
-     *
-     * @param roleName The name of the IAM role to apply the policies to
-     */
-    fun attachInstanceRolePolicies(roleName: String) {
-        attachS3Policy(roleName)
-        attachIamPolicy(roleName, AWSPolicy.Managed.SSMManagedInstanceCore.arn)
-    }
-
-    /**
      * Attaches an inline S3 access policy to an IAM role, granting full access to all easy-db-lab buckets.
      *
      * @param roleName The name of the IAM role to attach the policy to
@@ -535,7 +523,7 @@ class AWS(
                         PutRolePolicyRequest
                             .builder()
                             .roleName(roleName)
-                            .policyName("S3Access")
+                            .policyName(Constants.AWS.InlinePolicies.S3_ACCESS)
                             .policyDocument(s3Policy)
                             .build()
 

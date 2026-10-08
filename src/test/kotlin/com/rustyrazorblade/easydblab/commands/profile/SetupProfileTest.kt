@@ -290,6 +290,36 @@ class SetupProfileTest : BaseKoinTest() {
             assertThat(userConfig.sshTransport).isEqualTo(SshTransport.Ssm)
         }
 
+        /**
+         * A saved transport this version cannot read makes the profile fail to load, which would
+         * leave setup, the command that fixes a profile, unable to run. Setup rebuilds the profile
+         * from the raw file instead, keeps every other value, and asks for the transport.
+         */
+        @Test
+        fun `an unreadable saved transport is reported and asked for again`() {
+            whenever(mockUserConfigProvider.loadExistingConfig()).thenReturn(
+                mapOf(
+                    "email" to "test@example.com",
+                    "region" to "us-west-2",
+                    "awsProfile" to "my-profile",
+                    "keyName" to "test-key",
+                    "sshTransport" to "tunnel",
+                ),
+            )
+            whenever(mockUserConfigProvider.getUserConfig()).thenThrow(IllegalArgumentException("'tunnel' is not an SSH transport"))
+            testPrompter = TestPrompter(mapOf("SSH transport" to "ssm"))
+            setupTestModule()
+
+            SetupProfile().execute()
+
+            assertThat(bufferedOutput.errors.joinToString("\n") { it.first }).contains("'tunnel' is not an SSH transport")
+            val saved = argumentCaptor<User>()
+            verify(mockUserConfigProvider, atLeastOnce()).saveUserConfig(saved.capture())
+            assertThat(saved.lastValue.sshTransport).isEqualTo(SshTransport.Ssm)
+            assertThat(saved.lastValue.awsProfile).isEqualTo("my-profile")
+            assertThat(saved.lastValue.keyName).isEqualTo("test-key")
+        }
+
         /** Registers a complete static-credential profile and returns the User the command will update. */
         private fun existingProfile(): User {
             whenever(mockUserConfigProvider.loadExistingConfig()).thenReturn(

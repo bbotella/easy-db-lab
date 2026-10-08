@@ -80,10 +80,10 @@ class AccountBucketSetup(
     }
 
     /**
-     * Re-applies the instance role's policies (the S3Access inline policy and the SSM managed core
-     * policy) and the account bucket policy, so a role created by an older version and the bucket
-     * carry the latest permissions and delete denies. All are idempotent: PutRolePolicy,
-     * AttachRolePolicy and PutBucketPolicy leave the same end state however often they run.
+     * Re-applies the instance role's inline policies (S3Access and SessionManagerInstance) and the
+     * account bucket policy, so a role created by an older version and the bucket carry the latest
+     * permissions and delete denies. Both are idempotent: PutRolePolicy and PutBucketPolicy leave
+     * the same end state however often they run.
      */
     private fun reapplyPolicies(bucket: String) {
         eventBus.emit(Event.Provision.IamUpdating)

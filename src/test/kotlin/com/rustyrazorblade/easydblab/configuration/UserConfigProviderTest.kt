@@ -2,6 +2,7 @@ package com.rustyrazorblade.easydblab.configuration
 
 import com.rustyrazorblade.easydblab.BaseKoinTest
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -233,5 +234,26 @@ class UserConfigProviderTest : BaseKoinTest() {
         )
 
         assertThat(userConfigProvider.getUserConfig().sshTransport).isEqualTo(SshTransport.Ssm)
+    }
+
+    @Test
+    fun `an unknown transport fails the load and names the bad value and the choices`() {
+        userConfigFile.writeText(
+            """
+            email: test@example.com
+            region: us-west-2
+            keyName: test-key
+            awsProfile: ""
+            awsAccessKey: TEST_ACCESS_KEY
+            awsSecret: TEST_SECRET
+            sshTransport: tunnel
+            """.trimIndent(),
+        )
+
+        assertThatThrownBy { userConfigProvider.getUserConfig() }
+            .rootCause()
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("'tunnel'")
+            .hasMessageContaining("direct, ssm")
     }
 }
